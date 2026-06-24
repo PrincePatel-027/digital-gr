@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 
@@ -18,6 +19,7 @@ interface GRRecord {
 }
 
 export default function RecordsListPage() {
+  const router = useRouter()
   const { profile } = useAuth()
   const [records, setRecords] = useState<GRRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -159,7 +161,11 @@ export default function RecordsListPage() {
               </thead>
               <tbody className="divide-y divide-gray-800/60">
                 {filteredRecords.map((rec) => (
-                  <tr key={rec.id} className="hover:bg-gray-800/30 transition">
+                  <tr 
+                    key={rec.id} 
+                    onClick={() => router.push(`/dashboard/records/${rec.id}`)}
+                    className="hover:bg-gray-800/30 transition cursor-pointer"
+                  >
                     <td className="px-4 py-3 text-white font-mono font-medium">
                       {rec.gr_number}
                     </td>
@@ -184,7 +190,7 @@ export default function RecordsListPage() {
                         <span className="text-gray-600 text-xs">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       {(profile?.role === 'staff' || profile?.role === 'school_admin') && (
                         <Link
                           href={`/dashboard/records/${rec.id}/edit`}
