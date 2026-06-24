@@ -1,17 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter, usePathname } from 'next/navigation'
-import { useAuth } from '@/lib/auth-context'
-import ProtectedRoute from '@/components/ProtectedRoute'
-import type { UserRole } from '@/lib/types'
+import { usePathname } from 'next/navigation'
+import { useAuth, type UserRole } from '@/lib/auth-context'
 
+// ── Navigation items per role ─────────────────────────────────
 interface NavItem {
   label: string
   href: string
 }
 
-/** Navigation links per role */
 const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   super_admin: [
     { label: 'Schools', href: '/dashboard/schools' },
@@ -28,7 +26,6 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   ],
 }
 
-/** Human-readable role labels */
 const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: 'Super Admin',
   school_admin: 'School Admin',
@@ -36,67 +33,71 @@ const ROLE_LABELS: Record<UserRole, string> = {
   principal: 'Principal',
 }
 
+// ── Layout Component ──────────────────────────────────────────
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return (
-    <ProtectedRoute>
-      <DashboardShell>{children}</DashboardShell>
-    </ProtectedRoute>
-  )
-}
-
-function DashboardShell({ children }: { children: React.ReactNode }) {
-  const { profile, signOut } = useAuth()
-  const router = useRouter()
+  const { profile, loading, signOut } = useAuth()
   const pathname = usePathname()
 
-  if (!profile) {
+  // Show nothing while auth is resolving (the AuthProvider will redirect
+  // to /login if the user is not authenticated)
+  if (loading || !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-400">Loading profile…</p>
+        <div className="flex items-center gap-3 text-gray-400">
+          <svg
+            className="w-5 h-5 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+          <span className="text-sm">Loading…</span>
         </div>
       </div>
     )
   }
 
-  const navItems = NAV_BY_ROLE[profile.role] || []
-
-  async function handleSignOut() {
-    await signOut()
-    router.push('/login')
-  }
+  const navItems = NAV_BY_ROLE[profile.role] ?? []
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Top nav bar */}
-      <nav className="border-b border-gray-800 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-50">
+      {/* ── Top Nav ─────────────────────────────────────────── */}
+      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
-            {/* Left: Logo + nav links */}
-            <div className="flex items-center gap-6">
-              <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
-                <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                  </svg>
-                </div>
-                <span className="text-sm font-semibold text-white hidden sm:block">Digital GR</span>
+            {/* Left: brand + nav */}
+            <div className="flex items-center gap-8">
+              <Link
+                href="/dashboard"
+                className="text-lg font-bold text-white tracking-tight"
+              >
+                Digital GR
               </Link>
 
-              {/* Nav links */}
-              <div className="flex items-center gap-1">
+              <nav className="hidden sm:flex items-center gap-1">
                 {navItems.map((item) => {
-                  const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+                  const isActive = pathname.startsWith(item.href)
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
                         isActive
                           ? 'bg-gray-800 text-white'
                           : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
@@ -106,39 +107,62 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
                     </Link>
                   )
                 })}
-              </div>
+              </nav>
             </div>
 
-            {/* Right: User info + logout */}
+            {/* Right: user info + logout */}
             <div className="flex items-center gap-4">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-medium text-white leading-none">
+                <p className="text-sm font-medium text-white leading-tight">
                   {profile.full_name}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-gray-500">
                   {ROLE_LABELS[profile.role]}
                 </p>
               </div>
 
-              {/* Mobile: show role badge */}
-              <span className="sm:hidden inline-flex items-center rounded-md bg-indigo-500/10 px-2 py-1 text-xs font-medium text-indigo-400 ring-1 ring-inset ring-indigo-500/20">
+              {/* Role badge (mobile) */}
+              <span className="sm:hidden inline-flex items-center rounded-full bg-indigo-900/50 border border-indigo-700/50 px-2.5 py-0.5 text-xs font-medium text-indigo-300">
                 {ROLE_LABELS[profile.role]}
               </span>
 
               <button
-                onClick={handleSignOut}
-                className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                id="logout-button"
+                onClick={signOut}
+                className="rounded-lg border border-gray-700 bg-gray-800/60 px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:border-gray-600 transition"
               >
                 Sign out
               </button>
             </div>
           </div>
         </div>
-      </nav>
 
-      {/* Page content */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-        {children}
+        {/* Mobile nav */}
+        <nav className="sm:hidden border-t border-gray-800 px-4 py-2 flex gap-1 overflow-x-auto">
+          {navItems.map((item) => {
+            const isActive = pathname.startsWith(item.href)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`whitespace-nowrap px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  isActive
+                    ? 'bg-gray-800 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
+        </nav>
+      </header>
+
+      {/* ── Page Content ───────────────────────────────────── */}
+      <main className="flex-1">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {children}
+        </div>
       </main>
     </div>
   )

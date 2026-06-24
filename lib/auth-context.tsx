@@ -5,11 +5,22 @@ import {
   useContext,
   useEffect,
   useState,
+  useCallback,
   type ReactNode,
 } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Session } from '@supabase/supabase-js'
-import type { Profile } from '@/lib/types'
+
+// ── Types ────────────────────────────────────────────────────
+export type UserRole = 'super_admin' | 'school_admin' | 'staff' | 'principal'
+
+export interface Profile {
+  id: string
+  school_id: string | null
+  role: UserRole
+  full_name: string
+}
 
 interface AuthContextValue {
   session: Session | null
@@ -18,6 +29,7 @@ interface AuthContextValue {
   signOut: () => Promise<void>
 }
 
+// ── Context ──────────────────────────────────────────────────
 const AuthContext = createContext<AuthContextValue>({
   session: null,
   profile: null,
@@ -25,73 +37,109 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: async () => {},
 })
 
+export function useAuth() {
+  return useContext(AuthContext)
+}
+
+// ── Provider ─────────────────────────────────────────────────
+const PUBLIC_PATHS = ['/login', '/test-connection']
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
+
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Fetch the profile row for a given user id
-  async function fetchProfile(userId: string) {
+  // Fetch the user's profile row from the profiles table
+  const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id, school_id, role, full_name')
       .eq('id', userId)
       .single()
 
     if (error) {
       console.error('Failed to fetch profile:', error.message)
-      setProfile(null)
-    } else {
-      setProfile(data as Profile)
+      return null
     }
-  }
+    return data as Profile
+  }, [])
 
+  // Sign out helper
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut()
+    setSession(null)
+    setProfile(null)
+    router.push('/login')
+  }, [router])
+
+  // ── Bootstrap: get initial session ──────────────────────────
   useEffect(() => {
-    // 1. Get current session on mount
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      setSession(currentSession)
-      if (currentSession?.user) {
-        fetchProfile(currentSession.user.id).then(() => setLoading(false))
-      } else {
-        setLoading(false)
-      }
-    })
+    let mounted = true
 
-    // 2. Listen for auth state changes (login, logout, token refresh)
+    async function init() {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession()
+
+      if (!mounted) return
+
+      setSession(currentSession)
+
+      if (currentSession?.user) {
+        const p = await fetchProfile(currentSession.user.id)
+        if (mounted) setProfile(p)
+      }
+
+      setLoading(false)
+    }
+
+    init()
+
+    // Listen for auth state changes (login / logout / token refresh)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession)
+
       if (newSession?.user) {
-        fetchProfile(newSession.user.id)
+        const p = await fetchProfile(newSession.user.id)
+        if (mounted) setProfile(p)
       } else {
         setProfile(null)
       }
     })
 
     return () => {
+      mounted = false
       subscription.unsubscribe()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [fetchProfile])
 
-  async function signOut() {
-    await supabase.auth.signOut()
-    setSession(null)
-    setProfile(null)
-  }
+  // ── Route protection ────────────────────────────────────────
+  useEffect(() => {
+    if (loading) return
+
+    const isPublic = PUBLIC_PATHS.some(
+      (p) => pathname === p || pathname.startsWith(p + '/')
+    )
+
+    // Not logged in + trying to access protected route → redirect to login
+    if (!session && !isPublic) {
+      router.push('/login')
+    }
+
+    // Logged in + on the login page → redirect to dashboard
+    if (session && pathname === '/login') {
+      router.push('/dashboard')
+    }
+  }, [loading, session, pathname, router])
 
   return (
     <AuthContext.Provider value={{ session, profile, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
 }

@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Digital GR — School Register Digitization",
-  description: "Digitize and manage school General Register records securely",
+  title: "Digital GR — School Record Digitization",
+  description:
+    "Digitize and manage school General Register records securely.",
 };
 
 export default function RootLayout({
@@ -34,4 +35,3 @@ export default function RootLayout({
     </html>
   );
 }
-
