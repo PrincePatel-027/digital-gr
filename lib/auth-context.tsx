@@ -20,6 +20,7 @@ export interface Profile {
   school_id: string | null
   role: UserRole
   full_name: string
+  is_active: boolean
 }
 
 interface AuthContextValue {
@@ -56,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, school_id, role, full_name')
+      .select('id, school_id, role, full_name, is_active')
       .eq('id', userId)
       .single()
 
@@ -64,6 +65,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Failed to fetch profile:', error.message)
       return null
     }
+
+    if (data && data.is_active === false) {
+      await supabase.auth.signOut()
+      alert('Your account has been deactivated. Please contact your administrator.')
+      return null
+    }
+
     return data as Profile
   }, [])
 

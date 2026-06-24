@@ -27,6 +27,13 @@ export default function RecordsListPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
+    // Read initial search query from URL (e.g. from Dashboard Home)
+    const params = new URLSearchParams(window.location.search)
+    const q = params.get('q')
+    if (q) setSearchQuery(q)
+  }, [])
+
+  useEffect(() => {
     if (!profile) return
 
     async function load() {
