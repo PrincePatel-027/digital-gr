@@ -6,13 +6,12 @@ export const metadata = {
 
 async function testConnection() {
   try {
-    // A lightweight query — fetch one row from any system table.
-    // If anon access is restricted, this will still return a Supabase
-    // response (not a network error), which confirms connectivity.
-    const { error } = await supabase.from('_test_ping').select('*').limit(1)
+    // getSession() is the lightest possible Supabase call:
+    // it hits the Auth API (not PostgREST), so it works even if
+    // no tables exist yet and regardless of RLS policies.
+    const { error } = await supabase.auth.getSession()
 
-    // PGRST116 = table doesn't exist — that's fine, connection still works.
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       return { ok: false, message: error.message }
     }
 
