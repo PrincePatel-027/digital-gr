@@ -22,6 +22,7 @@ export default function RecordsListPage() {
   const [records, setRecords] = useState<GRRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     if (!profile) return
@@ -46,21 +47,33 @@ export default function RecordsListPage() {
 
   const canCreate = profile?.role === 'staff' || profile?.role === 'school_admin'
 
+  const filteredRecords = records.filter((rec) => {
+    if (!searchQuery) return true
+    const q = searchQuery.toLowerCase()
+    return (
+      rec.gr_number.toLowerCase().includes(q) ||
+      rec.student_name.toLowerCase().includes(q) ||
+      rec.fathers_name.toLowerCase().includes(q) ||
+      rec.surname.toLowerCase().includes(q) ||
+      rec.date_of_birth.toLowerCase().includes(q)
+    )
+  })
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">GR Records</h1>
           <p className="text-gray-400 mt-1 text-sm">
-            {records.length} record{records.length !== 1 ? 's' : ''} found
+            {filteredRecords.length} record{filteredRecords.length !== 1 ? 's' : ''} found
           </p>
         </div>
         {canCreate && (
           <Link
             href="/dashboard/records/new"
             id="new-record-btn"
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition text-center whitespace-nowrap"
           >
             + New Record
           </Link>
@@ -71,6 +84,24 @@ export default function RecordsListPage() {
       {error && (
         <div className="rounded-lg bg-red-950/50 border border-red-800/50 px-4 py-3 text-sm text-red-300">
           {error}
+        </div>
+      )}
+
+      {/* Search Input */}
+      {!loading && !error && records.length > 0 && (
+        <div className="relative max-w-md">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+          </div>
+          <input
+            type="text"
+            placeholder="Search by GR No, Name, or DOB..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-gray-700 bg-gray-800/60 pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+          />
         </div>
       )}
 
@@ -85,7 +116,7 @@ export default function RecordsListPage() {
         </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty state (No records at all) */}
       {!loading && records.length === 0 && !error && (
         <div className="rounded-2xl border border-dashed border-gray-800 bg-gray-900/30 py-16 text-center">
           <svg className="w-12 h-12 text-gray-700 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
@@ -103,8 +134,15 @@ export default function RecordsListPage() {
         </div>
       )}
 
+      {/* Empty state (Search yielded no results) */}
+      {!loading && records.length > 0 && filteredRecords.length === 0 && !error && (
+        <div className="rounded-2xl border border-dashed border-gray-800 bg-gray-900/30 py-16 text-center">
+          <p className="text-gray-500">No records found matching "{searchQuery}"</p>
+        </div>
+      )}
+
       {/* Records Table */}
-      {!loading && records.length > 0 && (
+      {!loading && filteredRecords.length > 0 && (
         <div className="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -120,7 +158,7 @@ export default function RecordsListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800/60">
-                {records.map((rec) => (
+                {filteredRecords.map((rec) => (
                   <tr key={rec.id} className="hover:bg-gray-800/30 transition">
                     <td className="px-4 py-3 text-white font-mono font-medium">
                       {rec.gr_number}
