@@ -1,11 +1,12 @@
 /**
- * OCR Module — Google Cloud Vision API integration
+ * OCR Module — OCR.space API integration (FREE, no billing required)
  *
  * Modes:
- *  1. REAL:  Set GOOGLE_CLOUD_CREDENTIALS_BASE64 in .env.local
- *            (base64-encoded service account JSON)
- *     -OR-   Set GOOGLE_APPLICATION_CREDENTIALS to a file path
- *  2. MOCK:  If neither is set, returns realistic mock GR text
+ *  1. REAL:  Set OCR_SPACE_API_KEY in .env.local
+ *  2. MOCK:  If not set, returns realistic mock GR text
+ *
+ * OCR.space free tier: 25,000 requests/month
+ * Supports: English, Hindi, Gujarati, and 20+ languages
  *
  * Usage:
  *   import { extractText, isOcrMockMode } from '@/lib/ocr'
@@ -20,135 +21,91 @@ export interface OcrResult {
   error?: string
 }
 
-interface VisionApiResponse {
-  responses: Array<{
-    fullTextAnnotation?: { text: string }
-    textAnnotations?: Array<{ description: string }>
-    error?: { code: number; message: string }
-  }>
-}
-
 // ── Check mode ────────────────────────────────────────────────
 export function isOcrMockMode(): boolean {
-  return (
-    !process.env.GOOGLE_CLOUD_CREDENTIALS_BASE64 &&
-    !process.env.GOOGLE_APPLICATION_CREDENTIALS
-  )
+  return !process.env.OCR_SPACE_API_KEY
 }
 
-// ── Get access token from service account ─────────────────────
-async function getAccessToken(): Promise<string> {
-  let credentials: {
-    client_email: string
-    private_key: string
-    token_uri?: string
-  }
+// ── Call OCR.space API ────────────────────────────────────────
+async function callOcrSpace(imageBuffer: Buffer): Promise<string> {
+  const apiKey = process.env.OCR_SPACE_API_KEY
+  if (!apiKey) throw new Error('OCR_SPACE_API_KEY not configured')
 
-  if (process.env.GOOGLE_CLOUD_CREDENTIALS_BASE64) {
-    const json = Buffer.from(
-      process.env.GOOGLE_CLOUD_CREDENTIALS_BASE64,
-      'base64'
-    ).toString('utf-8')
-    credentials = JSON.parse(json)
-  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    const fs = await import('fs')
-    const json = fs.readFileSync(
-      process.env.GOOGLE_APPLICATION_CREDENTIALS,
-      'utf-8'
-    )
-    credentials = JSON.parse(json)
-  } else {
-    throw new Error('No Google Cloud credentials configured')
-  }
+  const base64Image = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`
 
-  // Create a self-signed JWT for the Vision API
-  // We use the jose library (available via Next.js) to sign JWTs
-  const { SignJWT, importPKCS8 } = await import('jose')
-
-  const now = Math.floor(Date.now() / 1000)
-  const privateKey = await importPKCS8(credentials.private_key, 'RS256')
-
-  const jwt = await new SignJWT({
-    iss: credentials.client_email,
-    sub: credentials.client_email,
-    scope: 'https://www.googleapis.com/auth/cloud-vision',
-    aud: credentials.token_uri || 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
+  // ── Pass 1: Gujarati + English with Engine 1 ──────────────
+  // Engine 1 supports 25+ languages including Gujarati (guj) and Hindi (hin).
+  // It automatically picks up English characters in the same document.
+  const gujaratiResult = await ocrSpaceRequest(apiKey, base64Image, {
+    language: 'guj',    // Gujarati — also reads English in the same image
+    engine: '1',
   })
-    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
-    .sign(privateKey)
 
-  // Exchange JWT for access token
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+  // ── Pass 2: English-only with Engine 2 (better for handwriting) ──
+  const englishResult = await ocrSpaceRequest(apiKey, base64Image, {
+    language: 'eng',
+    engine: '2',        // Engine 2 is better for handwritten Latin text
+  })
+
+  // Merge: use whichever returned more text, show both if significantly different
+  const gujText = gujaratiResult.trim()
+  const engText = englishResult.trim()
+
+  if (!gujText && !engText) return '(No text detected in image)'
+  if (!gujText) return engText
+  if (!engText) return gujText
+
+  // If both have results, combine them for maximum coverage
+  if (gujText.length > engText.length * 1.3) {
+    // Gujarati pass got significantly more — it's likely a Gujarati-heavy document
+    return gujText
+  } else if (engText.length > gujText.length * 1.3) {
+    // English pass got significantly more — it's likely an English-heavy document
+    return engText
+  }
+
+  // Similar length — combine both with a separator
+  return `── Gujarati/Hindi OCR ──\n${gujText}\n\n── English OCR ──\n${engText}`
+}
+
+// ── Single OCR.space request helper ───────────────────────────
+async function ocrSpaceRequest(
+  apiKey: string,
+  base64Image: string,
+  opts: { language: string; engine: string }
+): Promise<string> {
+  const formData = new URLSearchParams()
+  formData.append('apikey', apiKey)
+  formData.append('base64Image', base64Image)
+  formData.append('language', opts.language)
+  formData.append('isOverlayRequired', 'false')
+  formData.append('detectOrientation', 'true')
+  formData.append('scale', 'true')
+  formData.append('OCREngine', opts.engine)
+
+  const res = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
-    }),
+    body: formData.toString(),
   })
-
-  if (!tokenRes.ok) {
-    const errText = await tokenRes.text()
-    throw new Error(`Token exchange failed: ${errText}`)
-  }
-
-  const tokenData = await tokenRes.json()
-  return tokenData.access_token
-}
-
-// ── Call Vision API ───────────────────────────────────────────
-async function callVisionApi(imageBuffer: Buffer): Promise<string> {
-  const accessToken = await getAccessToken()
-  const base64Image = imageBuffer.toString('base64')
-
-  const body = {
-    requests: [
-      {
-        image: { content: base64Image },
-        features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-      },
-    ],
-  }
-
-  const res = await fetch(
-    'https://vision.googleapis.com/v1/images:annotate',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }
-  )
 
   if (!res.ok) {
     const errText = await res.text()
-    throw new Error(`Vision API returned ${res.status}: ${errText}`)
+    throw new Error(`OCR.space returned ${res.status}: ${errText}`)
   }
 
-  const data: VisionApiResponse = await res.json()
-  const response = data.responses[0]
+  const data = await res.json()
 
-  if (response.error) {
-    throw new Error(
-      `Vision API error: ${response.error.message} (code ${response.error.code})`
-    )
+  if (data.IsErroredOnProcessing) {
+    console.warn(`OCR.space error (${opts.language}/${opts.engine}):`, data.ErrorMessage)
+    return ''
   }
 
-  // fullTextAnnotation has the best structured result
-  if (response.fullTextAnnotation?.text) {
-    return response.fullTextAnnotation.text
-  }
-
-  // Fallback to first textAnnotation (full page text)
-  if (response.textAnnotations?.[0]?.description) {
-    return response.textAnnotations[0].description
-  }
-
-  return '(No text detected in image)'
+  const parsedResults = data.ParsedResults || []
+  return parsedResults
+    .map((r: { ParsedText?: string }) => r.ParsedText || '')
+    .join('\n')
+    .trim()
 }
 
 // ── Mock OCR ──────────────────────────────────────────────────
@@ -223,7 +180,7 @@ export async function extractText(imageBuffer: Buffer): Promise<OcrResult> {
   }
 
   try {
-    const text = await callVisionApi(imageBuffer)
+    const text = await callOcrSpace(imageBuffer)
     return { text, mode: 'real' }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
