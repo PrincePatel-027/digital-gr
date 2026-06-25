@@ -39,74 +39,47 @@ export default function RecordDetailPage() {
 
   useEffect(() => {
     if (!recordId || !profile) return
-
     async function loadRecord() {
       setLoading(true)
-      const { data, error: fetchErr } = await supabase
-        .from('gr_records')
-        .select('*')
-        .eq('id', recordId)
-        .single()
-
+      const { data, error: fetchErr } = await supabase.from('gr_records').select('*').eq('id', recordId).single()
       if (fetchErr) {
         setError(fetchErr.message)
       } else if (data) {
         setRecord(data)
-        
         if (data.image_url) {
-          const { data: urlData } = await supabase.storage
-            .from('gr-images')
-            .createSignedUrl(data.image_url, 60 * 60) // 1 hour expiry
-          if (urlData?.signedUrl) {
-            setImageUrl(urlData.signedUrl)
-          }
+          const { data: urlData } = await supabase.storage.from('gr-images').createSignedUrl(data.image_url, 60 * 60)
+          if (urlData?.signedUrl) setImageUrl(urlData.signedUrl)
         }
       }
       setLoading(false)
     }
-
     loadRecord()
   }, [recordId, profile])
 
   const handleDelete = async () => {
     if (!record) return
-    const confirmed = window.confirm(
-      `Are you sure you want to delete GR record #${record.gr_number} for ${record.student_name}? This action cannot be undone.`
-    )
-    if (!confirmed) return
-
+    if (!window.confirm(`Delete GR #${record.gr_number} for ${record.student_name}? This cannot be undone.`)) return
     setDeleting(true)
     setDeleteError(null)
     try {
-      // First try to delete the image from storage if it exists
-      if (record.image_url) {
-        await supabase.storage.from('gr-images').remove([record.image_url])
-      }
-
-      // Then delete the database row
-      const { error: delErr } = await supabase
-        .from('gr_records')
-        .delete()
-        .eq('id', record.id)
-
+      if (record.image_url) await supabase.storage.from('gr-images').remove([record.image_url])
+      const { error: delErr } = await supabase.from('gr_records').delete().eq('id', record.id)
       if (delErr) throw delErr
-
       router.push('/dashboard/records')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setDeleteError(`We couldn't delete this record. Please try again. (${msg})`)
+      setDeleteError(`Delete failed: ${err instanceof Error ? err.message : String(err)}`)
       setDeleting(false)
     }
   }
 
   if (loading || authLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-[#0f2846]/60">
+      <div className="flex items-center justify-center py-20 text-[#6b6b6b]">
         <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        Loading record details…
+        <span className="text-sm font-semibold">Loading…</span>
       </div>
     )
   }
@@ -114,19 +87,11 @@ export default function RecordDetailPage() {
   if (error || !record) {
     return (
       <div className="space-y-4">
-        <div className="rounded-xl bg-red-50/80 border border-red-200 px-4 py-4 flex items-start gap-3 shadow-sm">
-          <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-          </svg>
-          <div>
-            <p className="text-sm font-semibold text-red-800">This record doesn't exist or you don't have access to view it</p>
-            <p className="text-xs text-red-600 mt-1">It may have been deleted, or you might not have the right permissions.</p>
-          </div>
+        <div className="neu-card-flat p-5" style={{ borderColor: '#dc2626' }}>
+          <p className="text-sm font-bold text-red-700">Record not found or no access</p>
+          <p className="text-xs text-red-600 mt-1">It may have been deleted.</p>
         </div>
-        <button
-          onClick={() => router.push('/dashboard/records')}
-          className="text-[#3a86c6] hover:text-[#0f2846] text-sm underline min-h-[44px] inline-flex items-center font-medium transition"
-        >
+        <button onClick={() => router.push('/dashboard/records')} className="text-sm font-bold text-[#4338ca] hover:underline min-h-[44px]">
           ← Back to records
         </button>
       </div>
@@ -136,130 +101,106 @@ export default function RecordDetailPage() {
   const canEdit = profile?.role === 'staff' || profile?.role === 'school_admin'
   const canDelete = profile?.role === 'school_admin'
 
-  const FieldView = ({ label, value }: { label: string; value?: string | null }) => (
-    <div className="border-b border-[#0f2846]/10 pb-3">
-      <dt className="text-xs font-bold text-[#0f2846]/60 uppercase tracking-wider mb-1">{label}</dt>
-      <dd className="text-sm text-[#0f2846] font-bold">{value || <span className="text-[#0f2846]/40 font-medium">—</span>}</dd>
+  const Field = ({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) => (
+    <div className="border-b border-[#d4d0c8] pb-3">
+      <dt className="text-[10px] font-bold text-[#9a9590] uppercase tracking-wider mb-1">{label}</dt>
+      <dd className={`text-sm font-bold ${mono ? 'text-mono' : ''}`}>
+        {value || <span className="text-[#d4d0c8] font-medium">—</span>}
+      </dd>
     </div>
   )
 
   return (
     <div className="space-y-6">
-      {/* Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <button
-            onClick={() => router.push('/dashboard/records')}
-            className="text-[#0f2846]/60 hover:text-[#0f2846] text-sm mb-3 flex items-center transition min-h-[44px] font-medium"
-          >
-            ← Back to records
-          </button>
-          <h1 className="text-3xl font-bold text-[#0f2846]">
-            GR #{record.gr_number} — {record.student_name} {record.surname}
-          </h1>
-          <p className="text-[#0f2846]/70 mt-1 text-sm font-medium">
-            Added on {new Date(record.created_at).toLocaleDateString()}
-          </p>
-        </div>
+      {/* Back + Header */}
+      <div>
+        <button onClick={() => router.push('/dashboard/records')} className="text-sm font-bold text-[#6b6b6b] hover:text-[#1a1a1a] mb-3 flex items-center min-h-[44px] transition">
+          ← Back
+        </button>
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-mono text-xs font-bold bg-[#1a1a1a] text-[#f0ede8] px-2.5 py-1 rounded-md">
+                GR-{record.gr_number}
+              </span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              {record.student_name} {record.surname}
+            </h1>
+            <p className="text-xs text-[#9a9590] font-semibold mt-1">
+              Added {new Date(record.created_at).toLocaleDateString()}
+            </p>
+          </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-          {canEdit && (
-            <Link
-              href={`/dashboard/records/${record.id}/edit`}
-              className="rounded-xl border border-[#0f2846]/20 bg-white/50 px-4 py-2.5 text-sm font-semibold text-[#0f2846] hover:bg-white/80 transition text-center min-h-[44px] flex items-center justify-center shadow-sm"
-            >
-              Edit Record
-            </Link>
-          )}
-          {canDelete && (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-100 transition disabled:opacity-50 min-h-[44px] shadow-sm"
-            >
-              {deleting ? 'Deleting…' : 'Delete'}
-            </button>
-          )}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {canEdit && (
+              <Link href={`/dashboard/records/${record.id}/edit`} className="neu-btn neu-btn-ghost text-xs flex-1 sm:flex-none">
+                Edit
+              </Link>
+            )}
+            {canDelete && (
+              <button onClick={handleDelete} disabled={deleting} className="neu-btn neu-btn-danger text-xs flex-1 sm:flex-none">
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Delete error */}
       {deleteError && (
-        <div className="rounded-xl bg-red-50/80 border border-red-200 px-4 py-3 flex items-start gap-2 shadow-sm">
-          <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-          </svg>
-          <p className="text-sm font-semibold text-red-700">{deleteError}</p>
+        <div className="neu-card-flat p-4" style={{ borderColor: '#dc2626' }}>
+          <p className="text-sm font-bold text-red-700">{deleteError}</p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Data Fields */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="rounded-[24px] glass-panel p-6 shadow-sm">
-            <h2 className="text-sm font-bold text-[#0f2846] uppercase tracking-wider mb-5">
-              Student Details
-            </h2>
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-              <FieldView label="GR Number" value={record.gr_number} />
-              <FieldView label="Student Name" value={record.student_name} />
-              <FieldView label="Surname" value={record.surname} />
-              <FieldView label="Father's Name" value={record.fathers_name} />
-              <FieldView label="Mother's Name" value={record.mothers_name} />
-              <FieldView label="Date of Birth" value={record.date_of_birth} />
-              <FieldView label="Admission Date" value={record.admission_date} />
-              <FieldView label="Caste / Category" value={record.caste_category} />
-              <div className="sm:col-span-2">
-                <FieldView label="Address" value={record.address} />
-              </div>
-              <div className="sm:col-span-2">
-                <FieldView label="Previous School" value={record.previous_school} />
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Fields */}
+        <div className="lg:col-span-2 space-y-5">
+          <div className="neu-card p-5 sm:p-6">
+            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-5">Student Details</h2>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+              <Field label="GR Number" value={record.gr_number} mono />
+              <Field label="Student Name" value={record.student_name} />
+              <Field label="Surname" value={record.surname} />
+              <Field label="Father's Name" value={record.fathers_name} />
+              <Field label="Mother's Name" value={record.mothers_name} />
+              <Field label="Date of Birth" value={record.date_of_birth} mono />
+              <Field label="Admission Date" value={record.admission_date} mono />
+              <Field label="Caste / Category" value={record.caste_category} />
+              <div className="sm:col-span-2"><Field label="Address" value={record.address} /></div>
+              <div className="sm:col-span-2"><Field label="Previous School" value={record.previous_school} /></div>
             </dl>
           </div>
 
           {record.ocr_raw_text && (
-            <div className="rounded-[24px] glass-panel p-6 shadow-sm">
-              <h2 className="text-sm font-bold text-[#0f2846] uppercase tracking-wider mb-3">
-                Extracted OCR Text
-              </h2>
-              <pre className="whitespace-pre-wrap text-sm text-[#0f2846]/80 bg-white/40 rounded-xl p-4 max-h-60 overflow-y-auto font-mono leading-relaxed border border-white/40 shadow-inner">
+            <div className="neu-card p-5 sm:p-6">
+              <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-3">OCR Text</h2>
+              <pre className="whitespace-pre-wrap text-xs text-[#6b6b6b] bg-[#e8e4de] rounded-lg p-4 max-h-60 overflow-y-auto text-mono leading-relaxed">
                 {record.ocr_raw_text}
               </pre>
             </div>
           )}
         </div>
 
-        {/* Right Column: Scanned Image */}
-        <div className="space-y-6">
-          <div className="rounded-[24px] glass-panel p-6 shadow-sm">
-            <h2 className="text-sm font-bold text-[#0f2846] uppercase tracking-wider mb-4">
-              Scanned Image
-            </h2>
+        {/* Image */}
+        <div>
+          <div className="neu-card p-5 sm:p-6">
+            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-4">Scan</h2>
             {imageUrl ? (
-              <a 
-                href={imageUrl} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="block overflow-hidden rounded-xl border border-[#0f2846]/20 hover:border-[#3a86c6] transition group relative shadow-sm"
-              >
-                <img
-                  src={imageUrl}
-                  alt="GR scan"
-                  className="w-full h-auto object-contain bg-white/40"
-                />
-                <div className="absolute inset-0 bg-[#0f2846]/0 group-hover:bg-[#0f2846]/5 transition flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 text-[#0f2846] text-xs px-4 py-2 rounded-full font-bold shadow-md transition-opacity">
-                    View Full Size ↗
+              <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="block rounded-lg overflow-hidden border-2 border-[#1a1a1a] hover:border-[#4338ca] transition group relative">
+                <img src={imageUrl} alt="GR scan" className="w-full h-auto object-contain bg-[#e8e4de]" />
+                <div className="absolute inset-0 bg-transparent group-hover:bg-black/5 transition flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 bg-[#f0ede8] text-[#1a1a1a] text-xs px-4 py-2 rounded-md font-bold shadow-md transition-opacity border-2 border-[#1a1a1a]">
+                    View Full ↗
                   </span>
                 </div>
               </a>
             ) : (
-              <div className="rounded-xl border border-dashed border-[#0f2846]/20 bg-white/40 py-12 flex flex-col items-center justify-center text-[#0f2846]/40 shadow-inner">
-                <svg className="w-8 h-8 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <div className="rounded-lg border-2 border-dashed border-[#d4d0c8] py-12 flex flex-col items-center justify-center text-[#9a9590]">
+                <svg className="w-8 h-8 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <span className="text-sm font-medium">No image attached</span>
+                <span className="text-xs font-bold">No image</span>
               </div>
             )}
           </div>

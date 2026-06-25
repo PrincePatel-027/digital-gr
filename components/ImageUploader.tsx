@@ -4,21 +4,14 @@ import { useState, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 
-// ── Types ─────────────────────────────────────────────────────
 interface ImageUploaderProps {
-  /** Called with the storage path after successful upload */
   onUpload: (path: string) => void
-  /** Optional: called with the File object when selected (before upload) */
   onFileSelect?: (file: File) => void
-  /** Optional: override the school_id folder (defaults to auth context) */
   schoolId?: string
-  /** Optional: additional CSS classes for the container */
   className?: string
-  /** Optional: disable the component */
   disabled?: boolean
 }
 
-// ── Component ─────────────────────────────────────────────────
 export default function ImageUploader({
   onUpload,
   onFileSelect,
@@ -46,14 +39,12 @@ export default function ImageUploader({
       setUploaded(false)
       setFileName(file.name)
 
-      // Preview
       const reader = new FileReader()
       reader.onload = (ev) => setPreview(ev.target?.result as string)
       reader.readAsDataURL(file)
 
       onFileSelect?.(file)
 
-      // Upload
       if (!schoolId) {
         setError('Unable to determine school. Please log in again.')
         return
@@ -62,7 +53,6 @@ export default function ImageUploader({
       setUploading(true)
 
       try {
-        // Generate unique filename: school_id/uuid.ext
         const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
         const uuid = crypto.randomUUID()
         const storagePath = `${schoolId}/${uuid}.${ext}`
@@ -74,23 +64,18 @@ export default function ImageUploader({
             upsert: false,
           })
 
-        if (uploadError) {
-          throw new Error(uploadError.message)
-        }
+        if (uploadError) throw new Error(uploadError.message)
 
         setUploaded(true)
         onUpload(storagePath)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        // Categorize errors for friendly messages
-        if (err instanceof TypeError && (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch'))) {
-          setError('Upload interrupted \u2014 it looks like your internet connection was lost. Please check your connection and try again.')
-        } else if (msg.includes('permission') || msg.includes('policy') || msg.includes('Unauthorized') || msg.includes('403')) {
-          setError('We couldn\'t save your image to our servers. This might be a permissions issue \u2014 please contact your administrator.')
-        } else if (msg.includes('quota') || msg.includes('storage') || msg.includes('413')) {
-          setError('The storage is currently full. Please contact your administrator to resolve this issue.')
+        if (err instanceof TypeError && (msg.includes('fetch') || msg.includes('network'))) {
+          setError('Upload interrupted — check your internet connection.')
+        } else if (msg.includes('permission') || msg.includes('policy') || msg.includes('403')) {
+          setError('Permission denied. Contact your administrator.')
         } else {
-          setError('Something went wrong while uploading your file. Please try again, or use a different image.')
+          setError('Upload failed. Please try again.')
         }
       } finally {
         setUploading(false)
@@ -109,33 +94,25 @@ export default function ImageUploader({
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {/* File input area */}
       {!preview ? (
         <label
           htmlFor="image-upload"
-          className={`flex flex-col items-center justify-center rounded-[24px] border-2 border-dashed min-h-[140px]
-            ${disabled ? 'border-[#0f2846]/20 bg-white/20 cursor-not-allowed' : 'border-[#0f2846]/20 bg-white/40 hover:border-[#3a86c6]/50 hover:bg-white/60 cursor-pointer shadow-sm'}
+          className={`flex flex-col items-center justify-center rounded-lg min-h-[140px]
+            border-2 border-dashed
+            ${disabled
+              ? 'border-[#d4d0c8] bg-[#f0ede8] cursor-not-allowed opacity-50'
+              : 'border-[#1a1a1a]/30 bg-[#f0ede8] hover:border-[#4338ca] cursor-pointer'
+            }
             transition p-8 text-center`}
         >
-          <svg
-            className="w-10 h-10 text-[#0f2846]/40 mb-3"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-            />
+          <svg className="w-8 h-8 text-[#9a9590] mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
-          <p className="text-sm text-[#0f2846]/60 font-medium mb-1">
-            <span className="text-[#3a86c6] font-bold">Click to upload</span>{' '}
-            or drag and drop
+          <p className="text-sm text-[#6b6b6b] font-semibold mb-1">
+            <span className="text-[#4338ca] font-bold">Tap to upload</span> or take a photo
           </p>
-          <p className="text-xs text-[#0f2846]/40 font-medium">
-            JPG, PNG, WebP, TIFF, or PDF — max 10 MB
+          <p className="text-xs text-[#9a9590] font-medium">
+            JPG, PNG, WebP, TIFF, PDF — max 10 MB
           </p>
           <input
             ref={fileRef}
@@ -149,70 +126,47 @@ export default function ImageUploader({
           />
         </label>
       ) : (
-        /* Preview + status */
-        <div className="rounded-[24px] glass-panel overflow-hidden shadow-sm">
+        <div className="neu-card overflow-hidden">
           {/* Image */}
           <div className="relative">
             <img
               src={preview}
               alt="Upload preview"
-              className="w-full max-h-64 object-contain bg-white/40"
+              className="w-full max-h-64 object-contain bg-[#e8e4de]"
             />
 
             {/* Uploading overlay */}
             {uploading && (
-              <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center">
-                <div className="flex items-center gap-3 text-[#0f2846]">
-                  <svg
-                    className="w-5 h-5 animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
+              <div className="absolute inset-0 bg-[#f0ede8]/80 flex items-center justify-center">
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 animate-spin text-[#1a1a1a]" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-sm font-medium">Uploading…</span>
+                  <span className="text-sm font-bold">Uploading…</span>
                 </div>
               </div>
             )}
 
-            {/* Success overlay */}
+            {/* Success badge */}
             {uploaded && (
-              <div className="absolute top-4 right-4">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#6b9e78]/10 border border-[#6b9e78]/30 px-3 py-1.5 text-xs font-bold text-[#6b9e78] shadow-sm">
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  Uploaded
+              <div className="absolute top-3 right-3">
+                <span className="neu-badge bg-[#16a34a] text-white">
+                  ✓ Uploaded
                 </span>
               </div>
             )}
           </div>
 
-          {/* File info bar */}
-          <div className="flex items-center justify-between px-5 py-3 border-t border-[#0f2846]/10 bg-white/30">
-            <span className="text-xs text-[#0f2846]/60 font-medium truncate max-w-[200px]">
+          {/* File info */}
+          <div className="flex items-center justify-between px-4 py-3 border-t-2 border-[#1a1a1a]">
+            <span className="text-xs text-[#6b6b6b] font-medium truncate max-w-[200px]">
               {fileName}
             </span>
             <button
               onClick={handleReset}
               disabled={uploading}
-              className="text-xs text-[#0f2846]/50 hover:text-[#0f2846] transition disabled:opacity-30 font-bold"
+              className="text-xs font-bold text-[#4338ca] hover:underline disabled:opacity-30"
             >
               Replace
             </button>
@@ -222,21 +176,10 @@ export default function ImageUploader({
 
       {/* Error */}
       {error && (
-        <div
-          className="rounded-xl bg-red-50/80 border border-red-200 px-4 py-4 space-y-3 shadow-sm"
-          role="alert"
-        >
-          <div className="flex items-start gap-2">
-            <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            <p className="text-sm text-red-700 font-medium">{error}</p>
-          </div>
-          <button
-            onClick={handleReset}
-            className="rounded-xl border border-red-200 bg-red-100/50 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-200/50 transition min-h-[40px] shadow-sm"
-          >
-            Try again
+        <div className="neu-card-flat p-4" style={{ borderColor: '#dc2626' }}>
+          <p className="text-sm text-red-700 font-bold mb-2">{error}</p>
+          <button onClick={handleReset} className="neu-btn neu-btn-ghost text-xs min-h-[36px] px-4">
+            Try Again
           </button>
         </div>
       )}

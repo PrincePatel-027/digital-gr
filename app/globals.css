@@ -1,47 +1,257 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-synova-navy: #0f2846;
-  --color-synova-blue: #3a86c6;
-  --color-synova-light-blue: #85bded;
-  --color-synova-mint: #6b9e78;
-  --color-synova-peach: #f3cca9;
-  
-  --color-background: #ffffff;
-  --color-foreground: #0f2846;
-  --font-sans: var(--font-outfit), var(--font-geist-sans), Arial, Helvetica, sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --color-stone-bg: #f0ede8;
+  --color-surface: #f0ede8;
+  --color-ink: #1a1a1a;
+  --color-ink-muted: #6b6b6b;
+  --color-accent: #4338ca;
+  --color-accent-hover: #3730a3;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-border-bold: #1a1a1a;
+  --color-border-subtle: #d4d0c8;
+
+  --color-background: #f0ede8;
+  --color-foreground: #1a1a1a;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
+/* ── Base ──────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #0f2846;
+  --neu-light: -6px -6px 14px rgba(255,255,255,0.7);
+  --neu-dark: 6px 6px 14px rgba(0,0,0,0.08);
+  --neu-inset: inset 2px 2px 5px rgba(0,0,0,0.06), inset -2px -2px 5px rgba(255,255,255,0.8);
+  --neu-sm-light: -3px -3px 8px rgba(255,255,255,0.6);
+  --neu-sm-dark: 3px 3px 8px rgba(0,0,0,0.07);
+}
+
+*,
+*::before,
+*::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  /* Soft pastel gradient background matching the Synova brand */
-  background: linear-gradient(135deg, #e0f2fe 0%, #dcfce7 50%, #f3e8ff 100%);
-  background-attachment: fixed;
-  color: var(--foreground);
+  background-color: #f0ede8;
+  color: #1a1a1a;
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Base glassmorphism class to apply consistently */
-.glass-panel {
-  background-color: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+/* ── Neumorphic Cards ─────────────────────────────────────── */
+.neu-card {
+  background-color: #f0ede8;
+  border-radius: 12px;
+  box-shadow: var(--neu-light), var(--neu-dark);
+  border: none;
 }
 
-.glass-input {
-  background-color: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  color: #0f2846;
+.neu-card-sm {
+  background-color: #f0ede8;
+  border-radius: 8px;
+  box-shadow: var(--neu-sm-light), var(--neu-sm-dark);
 }
-.glass-input:focus {
-  border-color: #3a86c6;
+
+.neu-card-flat {
+  background-color: #f0ede8;
+  border-radius: 12px;
+  border: 2px solid #1a1a1a;
+}
+
+/* ── Neumorphic Inputs ────────────────────────────────────── */
+.neu-input {
+  background-color: #f0ede8;
+  border-radius: 8px;
+  box-shadow: var(--neu-inset);
+  border: 1px solid transparent;
+  color: #1a1a1a;
+  font-size: 16px; /* prevent iOS zoom */
+  padding: 12px 14px;
+  min-height: 48px;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.neu-input::placeholder {
+  color: #9a9590;
+}
+.neu-input:focus {
   outline: none;
-  box-shadow: 0 0 0 1px #3a86c6;
+  border-color: #4338ca;
+  box-shadow: var(--neu-inset), 0 0 0 2px rgba(67, 56, 202, 0.15);
+}
+.neu-input-error {
+  border-color: #dc2626;
+  box-shadow: var(--neu-inset), 0 0 0 2px rgba(220, 38, 38, 0.1);
+}
+
+/* ── Neumorphic Buttons ───────────────────────────────────── */
+.neu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  min-height: 48px;
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.neu-btn-primary {
+  background-color: #1a1a1a;
+  color: #f0ede8;
+  box-shadow: var(--neu-sm-light), var(--neu-sm-dark);
+  border: 2px solid #1a1a1a;
+}
+.neu-btn-primary:hover {
+  background-color: #333;
+}
+.neu-btn-primary:active {
+  box-shadow: var(--neu-inset);
+  transform: translateY(1px);
+}
+.neu-btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.neu-btn-accent {
+  background-color: #4338ca;
+  color: #fff;
+  box-shadow: var(--neu-sm-light), var(--neu-sm-dark);
+  border: 2px solid #4338ca;
+}
+.neu-btn-accent:hover {
+  background-color: #3730a3;
+  border-color: #3730a3;
+}
+.neu-btn-accent:active {
+  box-shadow: var(--neu-inset);
+  transform: translateY(1px);
+}
+
+.neu-btn-ghost {
+  background-color: transparent;
+  color: #1a1a1a;
+  border: 2px solid #d4d0c8;
+  box-shadow: none;
+}
+.neu-btn-ghost:hover {
+  border-color: #1a1a1a;
+  background-color: rgba(26,26,26,0.03);
+}
+.neu-btn-ghost:active {
+  box-shadow: var(--neu-inset);
+  transform: translateY(1px);
+}
+
+.neu-btn-danger {
+  background-color: #dc2626;
+  color: #fff;
+  border: 2px solid #dc2626;
+  box-shadow: var(--neu-sm-light), var(--neu-sm-dark);
+}
+.neu-btn-danger:hover {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* ── Brutalist Accents ────────────────────────────────────── */
+.border-brutal {
+  border: 2px solid #1a1a1a;
+}
+
+.border-brutal-accent {
+  border: 2px solid #4338ca;
+}
+
+/* ── Badge ────────────────────────────────────────────────── */
+.neu-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Bottom Tab Bar (mobile) ──────────────────────────────── */
+.bottom-tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background-color: #f0ede8;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d0c8;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b0aca4;
+}
+
+/* ── Mobile Record Cards ──────────────────────────────────── */
+@media (max-width: 639px) {
+  .record-table-container {
+    display: none;
+  }
+  .record-cards-container {
+    display: flex;
+  }
+}
+@media (min-width: 640px) {
+  .record-table-container {
+    display: block;
+  }
+  .record-cards-container {
+    display: none;
+  }
+}
+
+/* ── Utilities ────────────────────────────────────────────── */
+.text-mono {
+  font-family: var(--font-mono);
+}
+
+/* Safe area padding for mobile bottom nav */
+.pb-safe {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 640px) {
+  .pb-safe {
+    padding-bottom: 0;
+  }
 }

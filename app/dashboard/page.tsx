@@ -2,231 +2,110 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 
-interface RecentRecord {
-  id: string
-  gr_number: string
-  student_name: string
-  surname: string
-  created_at: string
-}
-
-export default function DashboardHome() {
-  const router = useRouter()
+export default function DashboardPage() {
   const { profile } = useAuth()
-  
-  const [totalRecords, setTotalRecords] = useState<number | null>(null)
-  const [recentRecords, setRecentRecords] = useState<RecentRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [stats, setStats] = useState({ total: 0, recent: 0 })
+  const [loadingStats, setLoadingStats] = useState(true)
 
   useEffect(() => {
-    if (!profile) return
+    async function loadStats() {
+      if (!profile?.school_id) { setLoadingStats(false); return }
 
-    async function loadDashboardData() {
-      setLoading(true)
-
-      // Fetch total count
-      const { count } = await supabase
+      const { count: total } = await supabase
         .from('gr_records')
         .select('*', { count: 'exact', head: true })
+        .eq('school_id', profile.school_id)
 
-      setTotalRecords(count)
+      const weekAgo = new Date()
+      weekAgo.setDate(weekAgo.getDate() - 7)
 
-      // Fetch 5 most recent records
-      const { data } = await supabase
+      const { count: recent } = await supabase
         .from('gr_records')
-        .select('id, gr_number, student_name, surname, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5)
+        .select('*', { count: 'exact', head: true })
+        .eq('school_id', profile.school_id)
+        .gte('created_at', weekAgo.toISOString())
 
-      setRecentRecords(data || [])
-      setLoading(false)
+      setStats({ total: total || 0, recent: recent || 0 })
+      setLoadingStats(false)
     }
-
-    loadDashboardData()
+    loadStats()
   }, [profile])
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (searchQuery.trim()) {
-      router.push(`/dashboard/records?q=${encodeURIComponent(searchQuery.trim())}`)
-    }
-  }
-
-  if (!profile) return null
-
-  // Super admins don't manage records directly, they manage schools.
-  if (profile.role === 'super_admin') {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-[#0f2846] tracking-tight">
-            Welcome back, {profile.full_name.split(' ')[0]}!
-          </h1>
-          <p className="text-[#0f2846]/70 mt-2 text-sm">
-            You are logged in as a Super Admin.
-          </p>
-        </div>
-        <div className="rounded-[24px] glass-panel p-6">
-          <p className="text-[#0f2846]/80">
-            Please use the <Link href="/dashboard/schools" className="text-[#3a86c6] underline hover:text-[#0f2846]">Schools</Link> tab to manage the platform.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  const canCreate = profile.role === 'staff' || profile.role === 'school_admin'
 
   return (
     <div className="space-y-8">
-      {/* Welcome Section */}
+      {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-[#0f2846] tracking-tight">
-          Welcome back, {profile.full_name.split(' ')[0]}!
+        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+          Dashboard
         </h1>
-        <p className="text-[#0f2846]/70 mt-2 text-sm">
-          Manage your school's digitized General Register (GR) records securely.
+        <p className="text-sm text-[#6b6b6b] mt-1 font-medium">
+          Welcome back, {profile?.full_name || 'User'}
         </p>
       </div>
 
-      {/* Main Actions / Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        
-        {/* Total Records Stat Card */}
-        <div className="rounded-[24px] glass-panel p-6 flex flex-col justify-center">
-          <div className="flex items-center gap-4">
-            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#3a86c6]/10 flex items-center justify-center shadow-inner">
-              <svg className="w-6 h-6 text-[#3a86c6]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 gap-4 sm:gap-5">
+        <div className="neu-card p-5 sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">
+            Total Records
+          </p>
+          <p className="text-3xl sm:text-4xl font-extrabold text-mono">
+            {loadingStats ? '—' : stats.total}
+          </p>
+        </div>
+
+        <div className="neu-card p-5 sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">
+            This Week
+          </p>
+          <p className="text-3xl sm:text-4xl font-extrabold text-mono">
+            {loadingStats ? '—' : stats.recent}
+          </p>
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div>
+        <h2 className="text-xs font-bold uppercase tracking-wider text-[#6b6b6b] mb-3">
+          Quick Actions
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {(profile?.role === 'staff' || profile?.role === 'school_admin') && (
+            <Link
+              href="/dashboard/records/new"
+              className="neu-card p-5 flex items-center gap-4 hover:border-brutal transition group"
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#4338ca] flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-extrabold">New Record</p>
+                <p className="text-xs text-[#6b6b6b]">Scan & add a GR entry</p>
+              </div>
+            </Link>
+          )}
+
+          <Link
+            href="/dashboard/records"
+            className="neu-card p-5 flex items-center gap-4 hover:border-brutal transition group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-[#1a1a1a] flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-[#f0ede8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-[#0f2846]/60 uppercase tracking-wider">Total Records</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-bold text-[#0f2846] mt-1">
-                  {loading ? '—' : totalRecords}
-                </p>
-              </div>
+              <p className="text-sm font-extrabold">Browse Records</p>
+              <p className="text-xs text-[#6b6b6b]">Search & manage all entries</p>
             </div>
-          </div>
-        </div>
-
-        {/* Global Search Box */}
-        <div className="lg:col-span-2 rounded-[24px] glass-panel p-6">
-          <p className="text-sm font-medium text-[#0f2846]/60 uppercase tracking-wider mb-4">Quick Search</p>
-          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="w-5 h-5 text-[#0f2846]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                placeholder="Search by GR Number, Name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl glass-input pl-10 pr-4 py-2.5 text-sm placeholder-[#0f2846]/40 transition min-h-[44px]"
-              />
-            </div>
-            <button
-              type="submit"
-              className="rounded-xl bg-[#0f2846] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2846]/90 shadow-md transition cursor-pointer min-h-[44px] w-full sm:w-auto"
-            >
-              Search
-            </button>
-          </form>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between mt-8 mb-4">
-        <h2 className="text-lg font-bold text-[#0f2846] tracking-tight">Recently Added Records</h2>
-        {canCreate && (
-          <Link
-            href="/dashboard/records/new"
-            className="rounded-xl bg-[#3a86c6] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#3a86c6]/90 shadow-md transition cursor-pointer min-h-[44px] flex items-center justify-center"
-          >
-            + Add New Record
-          </Link>
-        )}
-      </div>
-
-      {/* Recent Records List */}
-      <div className="rounded-[24px] glass-panel overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center py-12 text-[#0f2846]/60">
-            <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Loading recent records…
-          </div>
-        ) : recentRecords.length === 0 ? (
-          <div className="py-16 px-6 text-center">
-            <div className="w-14 h-14 rounded-[20px] bg-white/50 border border-white/60 flex items-center justify-center mx-auto mb-4 shadow-sm">
-              <svg className="w-7 h-7 text-[#3a86c6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-              </svg>
-            </div>
-            <h3 className="text-base font-bold text-[#0f2846] mb-2">Your record list is empty</h3>
-            <p className="text-sm text-[#0f2846]/70 max-w-xs mx-auto">
-              Start by digitizing your first GR register page. Upload a photo or scan and fill in the details.
-            </p>
-            {canCreate && (
-              <Link
-                href="/dashboard/records/new"
-                className="inline-flex items-center mt-5 text-sm font-semibold text-[#3a86c6] hover:text-[#0f2846] underline transition"
-              >
-                + Create your first record
-              </Link>
-            )}
-          </div>
-        ) : (
-          <ul className="divide-y divide-white/40">
-            {recentRecords.map((rec) => (
-              <li key={rec.id}>
-                <Link
-                  href={`/dashboard/records/${rec.id}`}
-                  className="flex items-center justify-between px-6 py-4 hover:bg-white/40 transition group"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
-                    <span className="text-sm font-mono font-semibold text-[#0f2846] min-w-[80px]">
-                      GR-{rec.gr_number}
-                    </span>
-                    <span className="text-sm text-[#0f2846]/80 font-medium">
-                      {rec.student_name} {rec.surname}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-[#0f2846]/50">
-                    <span className="hidden sm:inline">
-                      {new Date(rec.created_at).toLocaleDateString()}
-                    </span>
-                    <svg className="w-4 h-4 text-[#0f2846]/40 group-hover:text-[#3a86c6] transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {!loading && recentRecords.length > 0 && (
-        <div className="text-center mt-4 pb-4">
-          <Link
-            href="/dashboard/records"
-            className="text-sm font-semibold text-[#3a86c6] hover:text-[#0f2846] transition underline"
-          >
-            View all records →
           </Link>
         </div>
-      )}
+      </div>
     </div>
   )
 }

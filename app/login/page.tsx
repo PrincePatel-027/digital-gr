@@ -22,16 +22,15 @@ export default function LoginPage() {
     })
 
     if (authError) {
-      // Map raw Supabase error messages to friendly equivalents
       const rawMsg = authError.message.toLowerCase()
       if (rawMsg.includes('invalid login credentials') || rawMsg.includes('invalid_credentials')) {
-        setError('The email or password you entered doesn\'t match our records. Please double-check and try again.')
+        setError('Wrong email or password. Please try again.')
       } else if (rawMsg.includes('email not confirmed') || rawMsg.includes('not confirmed')) {
-        setError('Your account email hasn\'t been verified yet. Please check your inbox for a confirmation link.')
+        setError('Email not verified. Check your inbox.')
       } else if (rawMsg.includes('too many requests') || rawMsg.includes('rate limit')) {
-        setError('Too many login attempts. Please wait a moment and try again.')
+        setError('Too many attempts. Wait a moment.')
       } else {
-        setError('We\'re having trouble signing you in right now. Please try again in a moment.')
+        setError('Sign in failed. Please try again.')
       }
       setLoading(false)
       return
@@ -41,42 +40,40 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-transparent px-4">
+    <main className="min-h-screen flex items-center justify-center px-5 py-12">
       <div className="w-full max-w-sm">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-[#0f2846] tracking-tight">
+        {/* Brand */}
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-extrabold tracking-tight text-[#1a1a1a]">
             Digital GR
           </h1>
-          <p className="text-sm text-[#0f2846]/70 mt-2">
-            Sign in to your account
+          <p className="text-sm text-[#6b6b6b] mt-2 font-medium">
+            School Record System
           </p>
         </div>
 
-        {/* Card */}
+        {/* Login Card */}
         <form
           onSubmit={handleLogin}
-          className="rounded-[24px] glass-panel p-6 sm:p-8 space-y-6"
+          className="neu-card p-7 space-y-5"
         >
           {/* Error */}
           {error && (
             <div
               id="login-error"
-              className="rounded-xl bg-red-50/80 border border-red-200 px-4 py-3 flex items-start gap-2"
+              className="border-brutal rounded-lg bg-red-50 px-4 py-3 border-red-500"
               role="alert"
+              style={{ borderColor: '#dc2626' }}
             >
-              <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-              </svg>
-              <p className="text-sm text-red-700">{error}</p>
+              <p className="text-sm text-red-700 font-semibold">{error}</p>
             </div>
           )}
 
           {/* Email */}
-          <div className="space-y-1.5">
+          <div>
             <label
               htmlFor="email"
-              className="block text-sm font-medium text-[#0f2846]/80"
+              className="block text-xs font-bold uppercase tracking-wider text-[#6b6b6b] mb-2"
             >
               Email
             </label>
@@ -88,15 +85,15 @@ export default function LoginPage() {
               required
               autoComplete="email"
               placeholder="you@school.com"
-              className="w-full rounded-xl glass-input px-3 py-2.5 text-sm placeholder-[#0f2846]/40 transition"
+              className="neu-input"
             />
           </div>
 
           {/* Password */}
-          <div className="space-y-1.5">
+          <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-[#0f2846]/80"
+              className="block text-xs font-bold uppercase tracking-wider text-[#6b6b6b] mb-2"
             >
               Password
             </label>
@@ -108,7 +105,7 @@ export default function LoginPage() {
               required
               autoComplete="current-password"
               placeholder="••••••••"
-              className="w-full rounded-xl glass-input px-3 py-2.5 text-sm placeholder-[#0f2846]/40 transition"
+              className="neu-input"
             />
           </div>
 
@@ -117,14 +114,14 @@ export default function LoginPage() {
             id="login-submit"
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-[#0f2846] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0f2846]/90 shadow-md focus:outline-none focus:ring-2 focus:ring-[#0f2846] focus:ring-offset-2 focus:ring-offset-transparent disabled:opacity-50 disabled:cursor-not-allowed transition min-h-[44px]"
+            className="neu-btn neu-btn-primary w-full"
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
 
-        <p className="text-center text-xs text-[#0f2846]/50 mt-8 font-medium tracking-wide uppercase">
-          Digital GR System · Secure login
+        <p className="text-center text-xs text-[#9a9590] mt-8 font-semibold uppercase tracking-widest">
+          Secure Login
         </p>
       </div>
     </main>
