@@ -64,16 +64,16 @@ export default function DashboardHome() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">
+          <h1 className="text-3xl font-bold text-[#0f2846] tracking-tight">
             Welcome back, {profile.full_name.split(' ')[0]}!
           </h1>
-          <p className="text-gray-400 mt-2 text-sm">
+          <p className="text-[#0f2846]/70 mt-2 text-sm">
             You are logged in as a Super Admin.
           </p>
         </div>
-        <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-6">
-          <p className="text-gray-300">
-            Please use the <Link href="/dashboard/schools" className="text-indigo-400 underline hover:text-indigo-300">Schools</Link> tab to manage the platform.
+        <div className="rounded-[24px] glass-panel p-6">
+          <p className="text-[#0f2846]/80">
+            Please use the <Link href="/dashboard/schools" className="text-[#3a86c6] underline hover:text-[#0f2846]">Schools</Link> tab to manage the platform.
           </p>
         </div>
       </div>
@@ -86,10 +86,10 @@ export default function DashboardHome() {
     <div className="space-y-8">
       {/* Welcome Section */}
       <div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">
+        <h1 className="text-3xl font-bold text-[#0f2846] tracking-tight">
           Welcome back, {profile.full_name.split(' ')[0]}!
         </h1>
-        <p className="text-gray-400 mt-2 text-sm">
+        <p className="text-[#0f2846]/70 mt-2 text-sm">
           Manage your school's digitized General Register (GR) records securely.
         </p>
       </div>
@@ -98,17 +98,17 @@ export default function DashboardHome() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         
         {/* Total Records Stat Card */}
-        <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-6 flex flex-col justify-center">
+        <div className="rounded-[24px] glass-panel p-6 flex flex-col justify-center">
           <div className="flex items-center gap-4">
-            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#3a86c6]/10 flex items-center justify-center shadow-inner">
+              <svg className="w-6 h-6 text-[#3a86c6]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">Total Records</p>
+              <p className="text-sm font-medium text-[#0f2846]/60 uppercase tracking-wider">Total Records</p>
               <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-bold text-white mt-1">
+                <p className="text-3xl font-bold text-[#0f2846] mt-1">
                   {loading ? '—' : totalRecords}
                 </p>
               </div>
@@ -117,12 +117,12 @@ export default function DashboardHome() {
         </div>
 
         {/* Global Search Box */}
-        <div className="lg:col-span-2 rounded-2xl border border-gray-800 bg-gray-900/60 p-6">
-          <p className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-4">Quick Search</p>
-          <form onSubmit={handleSearch} className="flex gap-3">
+        <div className="lg:col-span-2 rounded-[24px] glass-panel p-6">
+          <p className="text-sm font-medium text-[#0f2846]/60 uppercase tracking-wider mb-4">Quick Search</p>
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-5 h-5 text-[#0f2846]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
               </div>
@@ -131,12 +131,12 @@ export default function DashboardHome() {
                 placeholder="Search by GR Number, Name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-700 bg-gray-800/60 pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+                className="w-full rounded-xl glass-input pl-10 pr-4 py-2.5 text-sm placeholder-[#0f2846]/40 transition min-h-[44px]"
               />
             </div>
             <button
               type="submit"
-              className="rounded-lg bg-gray-800 border border-gray-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-gray-700 hover:border-gray-600 transition cursor-pointer"
+              className="rounded-xl bg-[#0f2846] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2846]/90 shadow-md transition cursor-pointer min-h-[44px] w-full sm:w-auto"
             >
               Search
             </button>
@@ -145,11 +145,11 @@ export default function DashboardHome() {
       </div>
 
       <div className="flex items-center justify-between mt-8 mb-4">
-        <h2 className="text-lg font-semibold text-white tracking-tight">Recently Added Records</h2>
+        <h2 className="text-lg font-bold text-[#0f2846] tracking-tight">Recently Added Records</h2>
         {canCreate && (
           <Link
             href="/dashboard/records/new"
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition cursor-pointer"
+            className="rounded-xl bg-[#3a86c6] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#3a86c6]/90 shadow-md transition cursor-pointer min-h-[44px] flex items-center justify-center"
           >
             + Add New Record
           </Link>
@@ -157,9 +157,9 @@ export default function DashboardHome() {
       </div>
 
       {/* Recent Records List */}
-      <div className="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+      <div className="rounded-[24px] glass-panel overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-12 text-gray-400">
+          <div className="flex items-center justify-center py-12 text-[#0f2846]/60">
             <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -167,30 +167,46 @@ export default function DashboardHome() {
             Loading recent records…
           </div>
         ) : recentRecords.length === 0 ? (
-          <div className="py-12 text-center text-gray-500 text-sm">
-            No records added yet.
+          <div className="py-16 px-6 text-center">
+            <div className="w-14 h-14 rounded-[20px] bg-white/50 border border-white/60 flex items-center justify-center mx-auto mb-4 shadow-sm">
+              <svg className="w-7 h-7 text-[#3a86c6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+            </div>
+            <h3 className="text-base font-bold text-[#0f2846] mb-2">Your record list is empty</h3>
+            <p className="text-sm text-[#0f2846]/70 max-w-xs mx-auto">
+              Start by digitizing your first GR register page. Upload a photo or scan and fill in the details.
+            </p>
+            {canCreate && (
+              <Link
+                href="/dashboard/records/new"
+                className="inline-flex items-center mt-5 text-sm font-semibold text-[#3a86c6] hover:text-[#0f2846] underline transition"
+              >
+                + Create your first record
+              </Link>
+            )}
           </div>
         ) : (
-          <ul className="divide-y divide-gray-800/60">
+          <ul className="divide-y divide-white/40">
             {recentRecords.map((rec) => (
               <li key={rec.id}>
                 <Link
                   href={`/dashboard/records/${rec.id}`}
-                  className="flex items-center justify-between px-6 py-4 hover:bg-gray-800/40 transition group"
+                  className="flex items-center justify-between px-6 py-4 hover:bg-white/40 transition group"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
-                    <span className="text-sm font-mono font-medium text-white min-w-[80px]">
+                    <span className="text-sm font-mono font-semibold text-[#0f2846] min-w-[80px]">
                       GR-{rec.gr_number}
                     </span>
-                    <span className="text-sm text-gray-300">
+                    <span className="text-sm text-[#0f2846]/80 font-medium">
                       {rec.student_name} {rec.surname}
                     </span>
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                  <div className="flex items-center gap-4 text-sm text-[#0f2846]/50">
                     <span className="hidden sm:inline">
                       {new Date(rec.created_at).toLocaleDateString()}
                     </span>
-                    <svg className="w-4 h-4 text-gray-600 group-hover:text-indigo-400 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-[#0f2846]/40 group-hover:text-[#3a86c6] transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </div>
@@ -205,7 +221,7 @@ export default function DashboardHome() {
         <div className="text-center mt-4 pb-4">
           <Link
             href="/dashboard/records"
-            className="text-sm font-medium text-indigo-400 hover:text-indigo-300 transition underline"
+            className="text-sm font-semibold text-[#3a86c6] hover:text-[#0f2846] transition underline"
           >
             View all records →
           </Link>

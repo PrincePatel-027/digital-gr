@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractText, isOcrMockMode } from '@/lib/ocr'
 
-export const config = {
-  api: { bodyParser: false },
-}
+
 
 export async function POST(req: NextRequest) {
   try {
