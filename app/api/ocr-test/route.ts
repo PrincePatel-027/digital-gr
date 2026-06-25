@@ -70,7 +70,7 @@ export async function GET() {
     status: 'ok',
     mode: isOcrMockMode() ? 'mock' : 'real',
     message: isOcrMockMode()
-      ? 'Running in MOCK mode — no Google Cloud credentials configured. Set GOOGLE_CLOUD_CREDENTIALS_BASE64 or GOOGLE_APPLICATION_CREDENTIALS to enable real OCR.'
-      : 'Real Google Cloud Vision API configured.',
+      ? 'Running in MOCK mode — no OCR_SPACE_API_KEY configured. Get a free key at https://ocr.space/ocrapi/freekey'
+      : 'Real OCR.space API configured (Gujarati + English dual-pass).',
   })
 }
