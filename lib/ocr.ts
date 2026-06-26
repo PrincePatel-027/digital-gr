@@ -73,6 +73,7 @@ async function ocrSpaceRequest(
   formData.append('isOverlayRequired', 'false')
   formData.append('detectOrientation', 'true')
   formData.append('scale', 'true')
+  formData.append('isTable', 'true') // Forces row-by-row parsing with tab separation
   formData.append('OCREngine', opts.engine)
 
   const res = await fetch('https://api.ocr.space/parse/image', {

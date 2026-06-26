@@ -55,9 +55,21 @@ interface FieldPattern {
 function extractAfterKeyword(text: string, match: RegExpMatchArray): string {
   const idx = match.index! + match[0].length
   const rest = text.slice(idx)
-  // Get the value after the keyword, up to the next line or next keyword
-  const lineMatch = rest.match(/^[\s:：\-—–]+([\s\S]+?)(?:\r?\n|$)/)
-  return lineMatch ? lineMatch[1].trim() : ''
+  
+  // Stop at newline or tab
+  const lineMatch = rest.match(/^[\s:：\-—–]+([^\t\r\n]+)/)
+  if (!lineMatch) return ''
+  
+  let value = lineMatch[1].trim()
+  
+  // If OCR merged columns without tabs, stop if we hit another field label
+  const nextLabelIdx = value.search(/(?:\b(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Address|Previous|Caste|Category|GR|Name)\b|पिता|माता|नाम|पता|जन्म|जाति)/i)
+  
+  if (nextLabelIdx > 2) { // only cut if the label isn't part of the current word
+    value = value.substring(0, nextLabelIdx).trim()
+  }
+  
+  return value
 }
 
 function extractDateNearKeyword(text: string, match: RegExpMatchArray): string {
@@ -136,14 +148,25 @@ const FIELD_PATTERNS: Record<keyof ParsedGRFields, FieldPattern[]> = {
     {
       keywords: /(?:(?:Residential\s*)?Address|पता|સરનામું)/i,
       extractor: (text, match) => {
-        const idx = match.index! + match[0].length
-        const rest = text.slice(idx)
-        // Address can span multiple short lines — grab up to 120 chars or 2 lines
-        const addrMatch = rest.match(/^[\s:：\-—–]+([\s\S]+?)(?:\r?\n\s*(?:[A-Z\u0900-\u0DFF][\w\s]*[:：]|\r?\n)|\r?\n\r?\n|$)/)
-        if (addrMatch) {
-          return addrMatch[1].replace(/\s+/g, ' ').trim()
+        let val = extractAfterKeyword(text, match)
+        // If it got cut short by a newline but there's more address on next line
+        // (Handling multiline address without hitting another label)
+        if (!val) {
+           const idx = match.index! + match[0].length
+           const rest = text.slice(idx)
+           const addrMatch = rest.match(/^[\s:：\-—–]+([\s\S]+?)(?:\r?\n\s*(?:[A-Z\u0900-\u0DFF][\w\s]*[:：]|\r?\n)|\r?\n\r?\n|$)/)
+           if (addrMatch) {
+             val = addrMatch[1].replace(/\s+/g, ' ').trim()
+           }
         }
-        return extractAfterKeyword(text, match)
+        
+        // Stop if it caught another label
+        const nextLabelIdx = val.search(/(?:\b(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR|Name)\b|पिता|माता|नाम|जन्म|जाति)/i)
+        if (nextLabelIdx > 2) {
+          val = val.substring(0, nextLabelIdx).trim()
+        }
+        
+        return val
       },
     },
   ],
