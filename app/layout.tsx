@@ -26,6 +26,8 @@ export const metadata: Metadata = {
     "Digitize and manage school General Register records securely.",
 };
 
+import { SpeedInsights } from '@vercel/speed-insights/next';
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -38,6 +40,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-[#f0ede8] text-[#1a1a1a]">
         <AuthProvider>{children}</AuthProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
