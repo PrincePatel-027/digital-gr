@@ -76,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null
     }
 
-    return data as Profile
+    return data as unknown as Profile
   }, [])
 
   // Sign out helper
