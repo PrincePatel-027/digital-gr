@@ -56,8 +56,8 @@ function extractAfterKeyword(text: string, match: RegExpMatchArray): string {
   const idx = match.index! + match[0].length
   const rest = text.slice(idx)
   
-  // Stop at newline or tab
-  const lineMatch = rest.match(/^[\s:：\-—–]+([^\t\r\n]+)/)
+  // Stop at newline or tab (leading space/colon is optional)
+  const lineMatch = rest.match(/^[\s:：\-—–]*([^\t\r\n]+)/)
   if (!lineMatch) return ''
   
   let value = lineMatch[1].trim()
@@ -87,7 +87,7 @@ function extractDateNearKeyword(text: string, match: RegExpMatchArray): string {
 const FIELD_PATTERNS: Record<keyof ParsedGRFields, FieldPattern[]> = {
   gr_number: [
     {
-      keywords: /(?:GR\s*(?:No|Number|क्रमांक|નંબર)\.?|प्रवेश\s*क्रमांक|Sr\.?\s*No\.?|General\s*Register\s*(?:Entry\s*)?(?:No\.?)?|क्र\.?\s*सं\.?)/i,
+      keywords: /(?:GR\s*(?:No|Number|क्रमांक|નંબર)\.?|प्रवेश\s*क्रमांक|Sr\.?\s*No\.?|क्र\.?\s*सं\.?)/i,
       extractor: (text, match) => {
         const after = extractAfterKeyword(text, match)
         // Extract just the number/ID part
@@ -148,25 +148,34 @@ const FIELD_PATTERNS: Record<keyof ParsedGRFields, FieldPattern[]> = {
     {
       keywords: /(?:(?:Residential\s*)?Address|पता|સરનામું)/i,
       extractor: (text, match) => {
-        let val = extractAfterKeyword(text, match)
-        // If it got cut short by a newline but there's more address on next line
-        // (Handling multiline address without hitting another label)
-        if (!val) {
-           const idx = match.index! + match[0].length
-           const rest = text.slice(idx)
-           const addrMatch = rest.match(/^[\s:：\-—–]+([\s\S]+?)(?:\r?\n\s*(?:[A-Z\u0900-\u0DFF][\w\s]*[:：]|\r?\n)|\r?\n\r?\n|$)/)
-           if (addrMatch) {
-             val = addrMatch[1].replace(/\s+/g, ' ').trim()
-           }
+        const idx = match.index! + match[0].length
+        const rest = text.slice(idx).replace(/^[\s:：\-—–]+/, '')
+        
+        // Split by lines and take until we hit a line that looks like another field label
+        const lines = rest.split(/\r?\n/)
+        let addressLines = []
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim()
+          if (!line) continue
+          
+          // If this line starts with or contains another field label, stop!
+          if (line.match(/^(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name|Signatures|Admin Entries)\b/i)) {
+            break
+          }
+          
+          // Stop if the line has tabs and the left side of the tab is a label
+          if (line.includes('\t') && line.split('\t')[0].match(/(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name)/i)) {
+             break
+          }
+
+          addressLines.push(line.replace(/\t/g, ' ').trim())
+          
+          // Stop if it gets too long (addresses are usually <= 4 lines)
+          if (addressLines.length >= 4) break
         }
         
-        // Stop if it caught another label
-        const nextLabelIdx = val.search(/(?:\b(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR|Name)\b|पिता|माता|नाम|जन्म|जाति)/i)
-        if (nextLabelIdx > 2) {
-          val = val.substring(0, nextLabelIdx).trim()
-        }
-        
-        return val
+        return addressLines.join(' ')
       },
     },
   ],
