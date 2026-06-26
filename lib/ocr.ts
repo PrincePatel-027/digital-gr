@@ -47,17 +47,9 @@ async function callOcrSpace(imageBuffer: Buffer): Promise<string> {
   if (!gujText) return engText
   if (!engText) return gujText
 
-  // If both have results, combine them for maximum coverage
-  if (gujText.length > engText.length * 1.3) {
-    // Gujarati pass got significantly more — it's likely a Gujarati-heavy document
-    return gujText
-  } else if (engText.length > gujText.length * 1.3) {
-    // English pass got significantly more — it's likely an English-heavy document
-    return engText
-  }
-
-  // Similar length — combine both with a separator
-  return `── Gujarati/Hindi OCR ──\n${gujText}\n\n── English OCR ──\n${engText}`
+  // Combine both passes so the parser can extract from either!
+  // We put Gujarati first so its labels are prioritized if found.
+  return `${gujText}\n\n${engText}`.trim()
 }
 
 // ── Single OCR.space request helper ───────────────────────────
