@@ -56,8 +56,8 @@ function extractAfterKeyword(text: string, match: RegExpMatchArray): string {
   const idx = match.index! + match[0].length
   const rest = text.slice(idx)
   
-  // Stop at newline or tab (leading space/colon is optional)
-  const lineMatch = rest.match(/^[\s:：\-—–]*([^\t\r\n]+)/)
+  // Stop at newline, tab, or markdown pipe | (leading space/colon/pipe is optional)
+  const lineMatch = rest.match(/^[\s:：\-—–|]*([^\t\r\n|]+)/)
   if (!lineMatch) return ''
   
   let value = lineMatch[1].trim()
@@ -164,12 +164,15 @@ const FIELD_PATTERNS: Record<keyof ParsedGRFields, FieldPattern[]> = {
             break
           }
           
-          // Stop if the line has tabs and the left side of the tab is a label
+          // Stop if the line has tabs/pipes and the left side is a label
           if (line.includes('\t') && line.split('\t')[0].match(/(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name)/i)) {
              break
           }
+          if (line.includes('|') && line.split('|')[0].match(/(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name)/i)) {
+             break
+          }
 
-          addressLines.push(line.replace(/\t/g, ' ').trim())
+          addressLines.push(line.replace(/[\t|]/g, ' ').trim())
           
           // Stop if it gets too long (addresses are usually <= 4 lines)
           if (addressLines.length >= 4) break

@@ -29,8 +29,8 @@ async function callOcrSpace(imageBuffer: Buffer): Promise<string> {
   // Engine 1 supports 25+ languages including Gujarati (guj) and Hindi (hin).
   // It automatically picks up English characters in the same document.
   const gujaratiResult = await ocrSpaceRequest(apiKey, base64Image, {
-    language: 'guj',    // Gujarati — also reads English in the same image
-    engine: '1',
+    language: 'guj',    // Gujarati — requires Engine 3
+    engine: '3',
   })
 
   // ── Pass 2: English-only with Engine 2 (better for handwriting) ──
