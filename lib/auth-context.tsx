@@ -21,6 +21,7 @@ export interface Profile {
   role: UserRole
   full_name: string
   is_active: boolean
+  schools?: { name: string } | null
 }
 
 interface AuthContextValue {
@@ -57,7 +58,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, school_id, role, full_name, is_active')
+      .select(`
+        id, school_id, role, full_name, is_active,
+        schools ( name )
+      `)
       .eq('id', userId)
       .single()
 

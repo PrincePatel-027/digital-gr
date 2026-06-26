@@ -108,8 +108,13 @@ export default function DashboardLayout({
         <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-14">
           {/* Left: brand + nav */}
           <div className="flex items-center gap-8">
-            <Link href="/dashboard" className="text-lg font-extrabold tracking-tight">
-              Digital GR
+            <Link href="/dashboard" className="flex flex-col">
+              <span className="text-lg font-extrabold tracking-tight leading-none">Digital GR</span>
+              {profile?.schools?.name && (
+                <span className="text-[10px] font-bold text-[#4338ca] uppercase tracking-widest mt-1">
+                  {profile.schools.name}
+                </span>
+              )}
             </Link>
 
             <nav className="flex items-center gap-1">
@@ -170,9 +175,14 @@ export default function DashboardLayout({
 
       {/* ── Mobile Top Bar (just brand + avatar) ───────────── */}
       <header className="sm:hidden sticky top-0 z-50 bg-[#f0ede8] border-b-2 border-[#1a1a1a]">
-        <div className="px-5 flex items-center justify-between h-12">
-          <Link href="/dashboard" className="text-lg font-extrabold tracking-tight">
-            Digital GR
+        <div className="px-5 flex items-center justify-between py-2 min-h-[48px]">
+          <Link href="/dashboard" className="flex flex-col">
+            <span className="text-lg font-extrabold tracking-tight leading-none">Digital GR</span>
+            {profile?.schools?.name && (
+              <span className="text-[9px] font-bold text-[#4338ca] uppercase tracking-widest mt-1">
+                {profile.schools.name}
+              </span>
+            )}
           </Link>
 
           <div className="relative">

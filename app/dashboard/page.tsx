@@ -42,7 +42,7 @@ export default function DashboardPage() {
           Dashboard
         </h1>
         <p className="text-sm text-[#6b6b6b] mt-1 font-medium">
-          Welcome back, {profile?.full_name || 'User'}
+          Welcome to {profile?.schools?.name || 'Digital GR'}, {profile?.full_name?.split(' ')[0] || 'User'}
         </p>
       </div>
 
