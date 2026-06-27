@@ -9,16 +9,28 @@ import { useAuth } from '@/lib/auth-context'
 interface GRRecordData {
   id: string
   school_id: string
+  // Left page — મુખ્ય વિગતો
   gr_number: string
   student_name: string
   fathers_name: string
   mothers_name: string
   surname: string
-  date_of_birth: string
-  admission_date: string
-  address: string
+  religion: string
   caste_category: string
+  date_of_birth: string
+  dob_in_words: string
+  birth_place: string
+  address: string
   previous_school: string
+  // Right page — શૈક્ષણિક વિગતો
+  admission_date: string
+  admission_standard: string
+  progress_and_conduct: string
+  leaving_date: string
+  leaving_reason: string
+  leaving_standard: string
+  remarks: string
+  // System
   image_url: string
   ocr_raw_text: string
   created_at: string
@@ -123,6 +135,22 @@ export default function RecordDetailPage() {
               <span className="text-mono text-xs font-bold bg-[#1a1a1a] text-[#f0ede8] px-2.5 py-1 rounded-md">
                 GR-{record.gr_number}
               </span>
+              {record.admission_standard && (
+                <span className="text-mono text-xs font-bold bg-[#e8e4de] text-[#6b6b6b] px-2.5 py-1 rounded-md">
+                  ધો. {record.admission_standard}
+                </span>
+              )}
+              {record.leaving_date ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-[#d97706]">
+                  <span className="w-2 h-2 rounded-full bg-[#d97706]" />
+                  Left
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-[#16a34a]">
+                  <span className="w-2 h-2 rounded-full bg-[#16a34a]" />
+                  Active
+                </span>
+              )}
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               {record.student_name} {record.surname}
@@ -156,19 +184,43 @@ export default function RecordDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Fields */}
         <div className="lg:col-span-2 space-y-5">
+
+          {/* ── Section 1: મુખ્ય વિગતો (Left Page) ── */}
           <div className="neu-card p-5 sm:p-6">
-            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-5">Student Details</h2>
+            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-1">
+              પત્રક ૪ — મુખ્ય વિગતો / Primary Details
+            </h2>
+            <p className="text-[10px] text-[#9a9590] mb-5">રજિસ્ટરનું ડાબું પાનું</p>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
-              <Field label="GR Number" value={record.gr_number} mono />
-              <Field label="Student Name" value={record.student_name} />
-              <Field label="Surname" value={record.surname} />
-              <Field label="Father's Name" value={record.fathers_name} />
-              <Field label="Mother's Name" value={record.mothers_name} />
-              <Field label="Date of Birth" value={record.date_of_birth} mono />
-              <Field label="Admission Date" value={record.admission_date} mono />
-              <Field label="Caste / Category" value={record.caste_category} />
-              <div className="sm:col-span-2"><Field label="Address" value={record.address} /></div>
-              <div className="sm:col-span-2"><Field label="Previous School" value={record.previous_school} /></div>
+              <Field label="રજિસ્ટર નંબર / GR Number" value={record.gr_number} mono />
+              <Field label="વિદ્યાર્થીનું નામ / Student Name" value={record.student_name} />
+              <Field label="અટક / Surname" value={record.surname} />
+              <Field label="પિતાનું નામ / Father's Name" value={record.fathers_name} />
+              <Field label="માતાનું નામ / Mother's Name" value={record.mothers_name} />
+              <Field label="ધર્મ / Religion" value={record.religion} />
+              <Field label="જ્ઞાતિ / Caste" value={record.caste_category} />
+              <Field label="જન્મ તારીખ (અંકમાં) / DOB" value={record.date_of_birth} mono />
+              <Field label="જન્મ તારીખ (શબ્દોમાં) / DOB in Words" value={record.dob_in_words} />
+              <Field label="જન્મ સ્થળ / Birth Place" value={record.birth_place} />
+              <div className="sm:col-span-2"><Field label="ગામ / Village" value={record.address} /></div>
+              <div className="sm:col-span-2"><Field label="છેલ્લી શાળા / Previous School" value={record.previous_school} /></div>
+            </dl>
+          </div>
+
+          {/* ── Section 2: શૈક્ષણિક વિગતો (Right Page) ── */}
+          <div className="neu-card p-5 sm:p-6">
+            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-1">
+              પત્રક ૫ — શૈક્ષણિક વિગતો / Academic Details
+            </h2>
+            <p className="text-[10px] text-[#9a9590] mb-5">રજિસ્ટરનું જમણું પાનું</p>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+              <Field label="દાખલ થયા તારીખ / Admission Date" value={record.admission_date} mono />
+              <Field label="દાખલ થયા ધોરણ / Admission Std." value={record.admission_standard} />
+              <div className="sm:col-span-2"><Field label="પ્રગતિ અને વર્તન / Progress & Conduct" value={record.progress_and_conduct} /></div>
+              <Field label="શાળા છોડ્યા તારીખ / Leaving Date" value={record.leaving_date} mono />
+              <Field label="છોડતી વખતે ધોરણ / Leaving Std." value={record.leaving_standard} />
+              <div className="sm:col-span-2"><Field label="છોડવાનું કારણ / Reason for Leaving" value={record.leaving_reason} /></div>
+              <div className="sm:col-span-2"><Field label="રીમાર્ક્સ / શેરો / Remarks" value={record.remarks} /></div>
             </dl>
           </div>
 

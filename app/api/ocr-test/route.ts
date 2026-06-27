@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
-
+    
     const result = await extractText(buffer)
 
     return NextResponse.json({

@@ -42,16 +42,28 @@ export default function EditRecordPage() {
       } else if (data) {
         setRecord({
           id: data.id,
+          // Left page — મુખ્ય વિગતો
           gr_number: data.gr_number || '',
           student_name: data.student_name || '',
           fathers_name: data.fathers_name || '',
           mothers_name: data.mothers_name || '',
           surname: data.surname || '',
-          date_of_birth: data.date_of_birth || '',
-          admission_date: data.admission_date || '',
-          address: data.address || '',
+          religion: data.religion || '',
           caste_category: data.caste_category || '',
+          date_of_birth: data.date_of_birth || '',
+          dob_in_words: data.dob_in_words || '',
+          birth_place: data.birth_place || '',
+          address: data.address || '',
           previous_school: data.previous_school || '',
+          // Right page — શૈક્ષણિક વિગતો
+          admission_date: data.admission_date || '',
+          admission_standard: data.admission_standard || '',
+          progress_and_conduct: data.progress_and_conduct || '',
+          leaving_date: data.leaving_date || '',
+          leaving_reason: data.leaving_reason || '',
+          leaving_standard: data.leaving_standard || '',
+          remarks: data.remarks || '',
+          // System
           image_url: data.image_url || '',
           ocr_raw_text: data.ocr_raw_text || '',
         })
@@ -67,12 +79,12 @@ export default function EditRecordPage() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
+      <div className="flex items-center justify-center py-20 text-[#6b6b6b]">
         <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        Loading record…
+        <span className="text-sm font-semibold">Loading record…</span>
       </div>
     )
   }
@@ -80,12 +92,12 @@ export default function EditRecordPage() {
   if (error) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg bg-red-950/50 border border-red-800/50 px-4 py-3 text-sm text-red-300">
-          {error}
+        <div className="neu-card-flat p-5" style={{ borderColor: '#dc2626' }}>
+          <p className="text-sm font-bold text-red-700">{error}</p>
         </div>
         <button
           onClick={() => router.push('/dashboard/records')}
-          className="text-indigo-400 hover:text-indigo-300 text-sm underline"
+          className="text-sm font-bold text-[#4338ca] hover:underline min-h-[44px]"
         >
           ← Back to records
         </button>
@@ -98,10 +110,10 @@ export default function EditRecordPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="text-2xl font-extrabold tracking-tight">
           Edit Record — GR #{record.gr_number}
         </h1>
-        <p className="text-gray-400 mt-1 text-sm">
+        <p className="text-sm text-[#6b6b6b] mt-1 font-medium">
           Update the student details below.
         </p>
       </div>

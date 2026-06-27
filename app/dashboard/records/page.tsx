@@ -14,6 +14,8 @@ interface GRRecord {
   fathers_name: string
   date_of_birth: string
   admission_date: string
+  admission_standard: string | null
+  leaving_date: string | null
   image_url: string | null
   created_at: string
 }
@@ -38,7 +40,7 @@ export default function RecordsListPage() {
     setError(null)
     const { data, error: fetchErr } = await supabase
       .from('gr_records')
-      .select('id, gr_number, student_name, surname, fathers_name, date_of_birth, admission_date, image_url, created_at')
+      .select('id, gr_number, student_name, surname, fathers_name, date_of_birth, admission_date, admission_standard, leaving_date, image_url, created_at')
       .order('created_at', { ascending: false })
 
     if (fetchErr) {
@@ -65,7 +67,8 @@ export default function RecordsListPage() {
       rec.student_name.toLowerCase().includes(q) ||
       rec.fathers_name.toLowerCase().includes(q) ||
       rec.surname.toLowerCase().includes(q) ||
-      rec.date_of_birth.toLowerCase().includes(q)
+      rec.date_of_birth.toLowerCase().includes(q) ||
+      (rec.admission_standard || '').toLowerCase().includes(q)
     )
   })
 
@@ -113,7 +116,7 @@ export default function RecordsListPage() {
           </div>
           <input
             type="text"
-            placeholder="Search by GR No, Name, DOB…"
+            placeholder="Search by GR No, Name, DOB, Std…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="neu-input pl-10"
@@ -179,9 +182,10 @@ export default function RecordsListPage() {
                     <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">GR No.</th>
                     <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Student</th>
                     <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Father</th>
+                    <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider hidden md:table-cell">Std.</th>
                     <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider hidden lg:table-cell">DOB</th>
                     <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider hidden lg:table-cell">Admission</th>
-                    <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Scan</th>
+                    <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Status</th>
                     <th className="px-5 py-3.5 text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider"></th>
                   </tr>
                 </thead>
@@ -195,13 +199,21 @@ export default function RecordsListPage() {
                       <td className="px-5 py-3.5 text-mono font-bold text-sm">{rec.gr_number}</td>
                       <td className="px-5 py-3.5 font-bold">{rec.student_name} {rec.surname}</td>
                       <td className="px-5 py-3.5 text-[#6b6b6b]">{rec.fathers_name}</td>
+                      <td className="px-5 py-3.5 text-mono text-xs text-[#6b6b6b] hidden md:table-cell">
+                        {rec.admission_standard ? `ધો. ${rec.admission_standard}` : '—'}
+                      </td>
                       <td className="px-5 py-3.5 text-mono text-xs text-[#6b6b6b] hidden lg:table-cell">{rec.date_of_birth}</td>
                       <td className="px-5 py-3.5 text-mono text-xs text-[#6b6b6b] hidden lg:table-cell">{rec.admission_date}</td>
                       <td className="px-5 py-3.5">
-                        {rec.image_url ? (
+                        {rec.leaving_date ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-[#d97706]">
+                            <span className="w-2 h-2 rounded-full bg-[#d97706]" />
+                            Left
+                          </span>
+                        ) : rec.image_url ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-[#16a34a]">
                             <span className="w-2 h-2 rounded-full bg-[#16a34a]" />
-                            Yes
+                            Active
                           </span>
                         ) : (
                           <span className="text-[#9a9590] text-xs">—</span>
@@ -237,17 +249,27 @@ export default function RecordsListPage() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  {/* GR badge + scan */}
+                  {/* GR badge + status */}
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[10px] text-mono font-bold text-white bg-[#1a1a1a] px-2 py-1 rounded-md">
                       GR-{rec.gr_number}
                     </span>
-                    {rec.image_url && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#16a34a]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a]" />
-                        Scanned
+                    {rec.admission_standard && (
+                      <span className="text-[10px] text-mono font-bold text-[#6b6b6b] bg-[#e8e4de] px-2 py-1 rounded-md">
+                        ધો. {rec.admission_standard}
                       </span>
                     )}
+                    {rec.leaving_date ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#d97706]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#d97706]" />
+                        Left
+                      </span>
+                    ) : rec.image_url ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#16a34a]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a]" />
+                        Active
+                      </span>
+                    ) : null}
                   </div>
 
                   {/* Name */}

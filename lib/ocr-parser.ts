@@ -1,8 +1,9 @@
 /**
- * OCR Parser — Extract structured GR fields from raw OCR text
+ * OCR Parser — Extract structured GR fields from tabular raw OCR text
  *
- * Supports English, Hindi (हिंदी), and Gujarati (ગુજરાતી) field labels.
- * Each field returns a value + confidence level.
+ * Designed for Manekrao Prathmik Shala register format where each ROW
+ * is a different student. Handles fragmented OCR.space Engine 3 output
+ * by grouping lines into student blocks.
  */
 
 export interface ParsedField {
@@ -16,224 +17,210 @@ export interface ParsedGRFields {
   fathers_name?: ParsedField
   mothers_name?: ParsedField
   surname?: ParsedField
-  date_of_birth?: ParsedField
-  admission_date?: ParsedField
-  address?: ParsedField
+  religion?: ParsedField
   caste_category?: ParsedField
+  date_of_birth?: ParsedField
+  dob_in_words?: ParsedField
+  birth_place?: ParsedField
+  address?: ParsedField
   previous_school?: ParsedField
+  admission_date?: ParsedField
+  admission_standard?: ParsedField
+  progress_and_conduct?: ParsedField
+  leaving_date?: ParsedField
+  leaving_reason?: ParsedField
+  leaving_standard?: ParsedField
+  remarks?: ParsedField
+}
+
+// ── Indic numeral conversion ───────────────────────────────
+const INDIC_DIGITS: Record<string, string> = {
+  // Gujarati
+  '૦': '0', '૧': '1', '૨': '2', '૩': '3', '૪': '4',
+  '૫': '5', '૬': '6', '૭': '7', '૮': '8', '૯': '9',
+  // Hindi / Devanagari (OCR engine 3 sometimes outputs Hindi)
+  '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+  '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  // Common OCR typos
+  '<': '8', 
+}
+
+function convertIndicNumerals(str: string): string {
+  return str.replace(/[૦-૯०-९<]/g, (ch) => INDIC_DIGITS[ch] || ch)
 }
 
 // ── Date helpers ──────────────────────────────────────────────
-const DATE_PATTERN = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g
-
 function normalizeDate(match: string): string {
-  const parts = match.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/)
+  const parts = match.match(/(\d{1,2})[\/\-.|<](\d{1,2})[\/\-.|<](\d{2,4})/)
   if (!parts) return ''
 
   let [, dd, mm, yyyy] = parts
-  // Handle 2-digit year
   if (yyyy.length === 2) {
-    const num = parseInt(yyyy)
-    yyyy = num > 50 ? `19${yyyy}` : `20${yyyy}`
+    // All these registers are from the 1900s, force 2 digit years to 19xx
+    yyyy = `19${yyyy}`
   }
-  // Pad day/month
   dd = dd.padStart(2, '0')
   mm = mm.padStart(2, '0')
-  // Return as YYYY-MM-DD for HTML date input
   return `${yyyy}-${mm}-${dd}`
 }
 
-// ── Field extraction patterns ─────────────────────────────────
-// Each pattern group: [regex, confidence_boost]
-// We try multiple patterns per field and pick the best match
+function isValidRecord(record: ParsedGRFields): boolean {
+  // A valid student row MUST have a name and at least one date.
+  // This strict requirement filters out noise from the English OCR pass and scattered numbers.
+  const hasName = !!record.student_name
+  const hasDate = !!(record.date_of_birth || record.admission_date || record.leaving_date)
 
-interface FieldPattern {
-  keywords: RegExp
-  extractor: (text: string, keywordMatch: RegExpMatchArray) => string
-}
-
-function extractAfterKeyword(text: string, match: RegExpMatchArray): string {
-  const idx = match.index! + match[0].length
-  const rest = text.slice(idx)
-  
-  // Stop at newline, tab, or markdown pipe | (leading space/colon/pipe is optional)
-  const lineMatch = rest.match(/^[\s:：\-—–|]*([^\t\r\n|]+)/)
-  if (!lineMatch) return ''
-  
-  let value = lineMatch[1].trim()
-  
-  // If OCR merged columns without tabs, stop if we hit another field label
-  const nextLabelIdx = value.search(/(?:\b(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Address|Previous|Caste|Category|GR|Name)\b|पिता|माता|नाम|पता|जन्म|जाति)/i)
-  
-  if (nextLabelIdx > 2) { // only cut if the label isn't part of the current word
-    value = value.substring(0, nextLabelIdx).trim()
+  // Filter out the "નમુનો" (Format/Sample) header which OCR misreads as a student
+  if (record.student_name?.value === 'નમુનો' || record.student_name?.value === 'नमुनो') {
+    return false
   }
-  
-  return value
+
+  return hasName && hasDate
 }
 
-function extractDateNearKeyword(text: string, match: RegExpMatchArray): string {
-  // Look for a date within ~80 chars of the keyword
-  const start = Math.max(0, match.index! - 20)
-  const end = Math.min(text.length, match.index! + match[0].length + 80)
-  const region = text.slice(start, end)
-  
-  const dateMatch = region.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/)
-  return dateMatch ? normalizeDate(dateMatch[0]) : ''
-}
+// ── Tabular Parser (Block grouping) ───────────────────────────
 
-// ── Field definitions ─────────────────────────────────────────
+export function parseGRTable(rawText: string): ParsedGRFields[] {
+  if (!rawText || rawText.trim().length < 10) return []
 
-const FIELD_PATTERNS: Record<keyof ParsedGRFields, FieldPattern[]> = {
-  gr_number: [
-    {
-      keywords: /(?:GR\s*(?:No|Number|क्रमांक|નંબર)\.?|प्रवेश\s*क्रमांक|Sr\.?\s*No\.?|क्र\.?\s*सं\.?)/i,
-      extractor: (text, match) => {
-        const after = extractAfterKeyword(text, match)
-        // Extract just the number/ID part
-        const numMatch = after.match(/^[#:]?\s*([A-Z]*\-?\d+[\w\-]*)/i)
-        return numMatch ? numMatch[1].trim() : after.split(/\s/)[0] || ''
-      },
-    },
-  ],
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  const results: ParsedGRFields[] = []
 
-  student_name: [
-    {
-      keywords: /(?:Student\s*(?:Full\s*)?Name|विद्यार्थी\s*(?:का|की)\s*नाम|નામ|Name\s*(?:of\s*(?:Student|Pupil))?)\s*(?![:\s]*(?:Father|Mother|पिता|माता|પિતા|માતા))/i,
-      extractor: extractAfterKeyword,
-    },
-    {
-      // Fallback: "नाम:" at start of line
-      keywords: /^(?:नाम|Name)\s*[:：]/im,
-      extractor: extractAfterKeyword,
-    },
-  ],
+  let currentRecord: ParsedGRFields | null = null
+  let currentBlockText = ''
+  let lastGrNumber: number | null = null
 
-  fathers_name: [
-    {
-      keywords: /(?:Father'?s?\s*(?:Full\s*)?Name|पिता\s*(?:का\s*नाम|जी)?|પિતા(?:નું\s*નામ)?|पिताजी)/i,
-      extractor: extractAfterKeyword,
-    },
-  ],
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    // Aggressively skip header rows
+    if (line.match(/(?:વિદ્યાર્થી|નામ|તારીખ|ધોરણ|જન્મ|ધર્મ|શાળા|સરનામું|Name|Date|Std|પત્રક|મુખ્ય|વિગતો|પિતા|માતા|પ્રગતિ|વર્તન)/i)) {
+      continue
+    }
 
-  mothers_name: [
-    {
-      keywords: /(?:Mother'?s?\s*(?:Full\s*)?Name|माता\s*(?:का\s*नाम|जी)?|માતા(?:નું\s*નામ)?|माताजी)/i,
-      extractor: extractAfterKeyword,
-    },
-  ],
+    const latinLine = convertIndicNumerals(line)
+    
+    // Detect start of a new student record
+    // Relaxed logic using sequential anchor heuristics
+    // Allow leading punctuation (like |) and trailing punctuation (like .)
+    const numMatch = latinLine.match(/^[^a-zA-Z\d]*(\d{1,4})[\s.\-)]*(.*)$/)
+    let isNewStudent = false
+    
+    if (numMatch) {
+       const numStr = numMatch[1]
+       const num = parseInt(numStr, 10)
+       const restOfLine = numMatch[2] || ''
 
-  surname: [
-    {
-      keywords: /(?:Surname|उपनाम|अटक|અટક|Family\s*Name)/i,
-      extractor: extractAfterKeyword,
-    },
-  ],
+       const hasLetters = !!restOfLine.match(/[a-zA-Z\u0A80-\u0AFF\u0900-\u097F]/)
+       const hasDates = !!restOfLine.match(/\b\d{1,2}[\/\-.|<]\d{1,2}/)
 
-  date_of_birth: [
-    {
-      keywords: /(?:Date\s*of\s*Birth|DOB|जन्म\s*(?:तारीख|तिथि|दिनांक)|જન્મ\s*તારીખ)/i,
-      extractor: extractDateNearKeyword,
-    },
-  ],
+       const currentGrNum = parseInt(currentRecord?.gr_number?.value || '0', 10)
+       const effectiveLastGr = currentGrNum || lastGrNumber
 
-  admission_date: [
-    {
-      keywords: /(?:Date\s*of\s*Admission|Admission\s*(?:Date)?|प्रवेश\s*(?:तारीख|दिनांक)|પ્રવેશ\s*(?:તારીખ|દિનાંક))/i,
-      extractor: extractDateNearKeyword,
-    },
-  ],
+       // Condition A: Number followed by letters, no dates (Typical GR + Name)
+       if (hasLetters && !hasDates) {
+           isNewStudent = true
+       }
+       // Condition B: Number is on its own line, next line is letters
+       else if (!restOfLine && i + 1 < lines.length) {
+           const nextLatin = convertIndicNumerals(lines[i+1])
+           if (nextLatin.match(/^[a-zA-Z\u0A80-\u0AFF\u0900-\u097F]{2,}/)) {
+               isNewStudent = true
+           }
+       }
+       // Condition C: Number is part of a sequence (GR n+1 to n+5)
+       else if (effectiveLastGr && num > effectiveLastGr && num <= effectiveLastGr + 5) {
+           isNewStudent = true
+       }
+       // Condition D: English Engine 2 tab separated
+       else if (line.includes('\t') && hasDates) {
+           isNewStudent = true
+       }
+    }
 
-  address: [
-    {
-      keywords: /(?:(?:Residential\s*)?Address|पता|સરનામું)/i,
-      extractor: (text, match) => {
-        const idx = match.index! + match[0].length
-        const rest = text.slice(idx).replace(/^[\s:：\-—–]+/, '')
-        
-        // Split by lines and take until we hit a line that looks like another field label
-        const lines = rest.split(/\r?\n/)
-        let addressLines = []
-        
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim()
-          if (!line) continue
-          
-          // If this line starts with or contains another field label, stop!
-          if (line.match(/^(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name|Signatures|Admin Entries)\b/i)) {
-            break
-          }
-          
-          // Stop if the line has tabs/pipes and the left side is a label
-          if (line.includes('\t') && line.split('\t')[0].match(/(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name)/i)) {
-             break
-          }
-          if (line.includes('|') && line.split('|')[0].match(/(?:Student|Father's|Mother's|Surname|Date of Birth|DOB|Admission|Previous|Caste|Category|GR Number|Name)/i)) {
-             break
-          }
-
-          addressLines.push(line.replace(/[\t|]/g, ' ').trim())
-          
-          // Stop if it gets too long (addresses are usually <= 4 lines)
-          if (addressLines.length >= 4) break
+    if (isNewStudent) {
+      // Save the previous student block
+      if (currentRecord) {
+        extractFromBlock(currentRecord, currentBlockText)
+        if (isValidRecord(currentRecord)) {
+           results.push(currentRecord)
+           lastGrNumber = parseInt(currentRecord.gr_number?.value || '0', 10) || lastGrNumber
         }
-        
-        return addressLines.join(' ')
-      },
-    },
-  ],
-
-  caste_category: [
-    {
-      keywords: /(?:Caste\s*(?:Category|\/\s*Category)?|Category|जाति\s*(?:\/\s*वर्ग)?|વર્ગ|જાતિ)/i,
-      extractor: extractAfterKeyword,
-    },
-  ],
-
-  previous_school: [
-    {
-      keywords: /(?:Previous\s*School|पूर्व\s*(?:शाला|विद्यालय)|અગાઉની\s*શાળા)/i,
-      extractor: extractAfterKeyword,
-    },
-  ],
-}
-
-// ── Main parser ───────────────────────────────────────────────
-export function parseGRFields(rawText: string): ParsedGRFields {
-  if (!rawText || rawText.trim().length < 10) return {}
-
-  const result: ParsedGRFields = {}
-  const fieldKeys = Object.keys(FIELD_PATTERNS) as (keyof ParsedGRFields)[]
-
-  for (const field of fieldKeys) {
-    const patterns = FIELD_PATTERNS[field]
-
-    for (const pattern of patterns) {
-      const match = rawText.match(pattern.keywords)
-      if (!match) continue
-
-      const value = pattern.extractor(rawText, match)
-      if (!value || value.length < 1) continue
-
-      // Determine confidence based on value quality
-      let confidence: 'high' | 'medium' | 'low' = 'medium'
-
-      if (field === 'date_of_birth' || field === 'admission_date') {
-        // Dates that parse correctly are high confidence
-        confidence = value.match(/^\d{4}-\d{2}-\d{2}$/) ? 'high' : 'low'
-      } else if (field === 'gr_number') {
-        confidence = value.match(/^\d+$/) ? 'high' : 'medium'
-      } else {
-        // Longer text values with proper words → higher confidence
-        confidence = value.length > 3 ? 'high' : 'low'
       }
-
-      result[field] = { value, confidence }
-      break // Use first matching pattern
+      
+      // Start new student block
+      currentRecord = {}
+      currentBlockText = line + ' '
+      
+      const m = latinLine.match(/^(\d{1,4})\b/)
+      if (m) {
+         currentRecord.gr_number = { value: m[1], confidence: 'high' }
+      }
+    } else if (currentRecord) {
+      // Append line to current student's block
+      currentBlockText += line + ' '
     }
   }
 
-  return result
+  // Save the final student block
+  if (currentRecord) {
+    extractFromBlock(currentRecord, currentBlockText)
+    if (isValidRecord(currentRecord)) {
+       results.push(currentRecord)
+    }
+  }
+
+  return results
+}
+
+function extractFromBlock(record: ParsedGRFields, blockText: string) {
+    const latinText = convertIndicNumerals(blockText)
+    
+    // 1. Dates
+    const dates = latinText.match(/\b(\d{1,2}[\/\-.|<]\d{1,2}[\/\-.|<]\d{2,4})\b/g)
+    if (dates) {
+       if (dates[0]) record.date_of_birth = { value: normalizeDate(dates[0]), confidence: 'high' }
+       if (dates[1]) record.admission_date = { value: normalizeDate(dates[1]), confidence: 'high' }
+       if (dates[2]) record.leaving_date = { value: normalizeDate(dates[2]), confidence: 'high' }
+    }
+
+    // 2. Name Extraction
+    // Filter out numbers and dates, get consecutive text words
+    const words = blockText.split(/\s+/)
+      .filter(w => w.match(/[\u0A80-\u0AFF\u0900-\u097F]/) && w.length >= 2)
+      .filter(w => !w.match(/(હિંદુ|મુસલમાન|મુસ્લિમ|ખ્રિસ્તી|પટેલ|રજપૂત|વાણિયા|હરિજન|ઠાકોર|બ્રાહ્મણ)/)) // Remove known non-name keywords
+    
+    if (words.length >= 1) record.student_name = { value: words[0], confidence: 'medium' }
+    if (words.length >= 2) record.fathers_name = { value: words[1], confidence: 'medium' }
+    if (words.length >= 3) record.surname = { value: words[2], confidence: 'low' }
+
+    // 3. Religion/Caste
+    if (blockText.match(/(હિંદુ|મુસલમાન|મુસ્લિમ|ખ્રિસ્તી|Hindu|Muslim|Christian)/i)) {
+      const relMatch = blockText.match(/(હિંદુ|મુસલમાન|મુસ્લિમ|ખ્રિસ્તી|Hindu|Muslim|Christian)/i)
+      if (relMatch) record.religion = { value: relMatch[1], confidence: 'high' }
+    }
+    if (blockText.match(/(પટેલ|રજપૂત|વાણિયા|હરિજન|ઠાકોર|બ્રાહ્મણ|Patel|Rajput|Thakor)/i)) {
+      const casteMatch = blockText.match(/(પટેલ|રજપૂત|વાણિયા|હરિજન|ઠાકોર|બ્રાહ્મણ|Patel|Rajput|Thakor)/i)
+      if (casteMatch) record.caste_category = { value: casteMatch[1], confidence: 'medium' }
+    }
+
+    // 4. Standard
+    const stdMatch = latinText.match(/(?:ધો\.?\s*|ધોરણ\s*)?([1-9IVXivx]{1,2})\b/)
+    if (stdMatch && stdMatch[1] !== record.gr_number?.value) {
+       record.admission_standard = { value: stdMatch[1], confidence: 'medium' }
+    }
+
+    // 5. Leaving Reason & Remarks
+    // Detect keywords related to leaving the school or removal from register
+    if (blockText.match(/(નામ કમી|કમી|ગેરહાજરી|ગેરહાજર|જવાથી|નામનેમી)/i)) {
+      const reasonMatch = blockText.match(/(?:નામ કમી|કમી|ગેરહાજરી|ગેરહાજર|જવાથી|નામનેમી).{0,15}/i)
+      if (reasonMatch) record.leaving_reason = { value: reasonMatch[0].trim(), confidence: 'medium' }
+    }
+
+    // 6. Progress and Conduct
+    if (blockText.match(/(પાસ|નાપાસ|નપાસ|સારું|ખરાબ|સંતોષકારક)/i)) {
+      const progMatch = blockText.match(/(?:પાસ|નાપાસ|નપાસ|સારું|ખરાબ|સંતોષકારક).{0,15}/i)
+      if (progMatch) record.progress_and_conduct = { value: progMatch[0].trim(), confidence: 'medium' }
+    }
 }
 
 // ── Utility: count filled fields ─────────────────────────────
