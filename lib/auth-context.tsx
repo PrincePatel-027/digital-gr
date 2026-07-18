@@ -44,7 +44,7 @@ export function useAuth() {
 }
 
 // ── Provider ─────────────────────────────────────────────────
-const PUBLIC_PATHS = ['/login', '/test-connection']
+const PUBLIC_PATHS = ['/login']
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()

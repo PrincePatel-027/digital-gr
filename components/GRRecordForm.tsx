@@ -113,7 +113,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
   const [ocrText, setOcrText] = useState<string>(initialData?.ocr_raw_text || '')
   const [ocrLoading, setOcrLoading] = useState(false)
-  const [ocrMode, setOcrMode] = useState<'real' | 'mock' | null>(null)
+  const [ocrMode, setOcrMode] = useState<'real' | 'mock' | 'gemini' | null>(null)
   const [ocrError, setOcrError] = useState<string | null>(null)
 
   // Multi-record support
@@ -190,15 +190,27 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       const result = await res.json()
 
       if (res.status === 429) {
-        setOcrError('OCR service at capacity. Fill in fields manually or try again later.')
+        setOcrError('Extraction service at capacity. Fill in fields manually or try again later.')
+      } else if (Array.isArray(result.records) && result.records.length > 0) {
+        // Structured records straight from the vision model — no text parsing needed.
+        setOcrText(result.text || '')
+        setOcrMode(result.mode)
+        if (result.text) updateField('ocr_raw_text', result.text)
+
+        const records = result.records as ParsedGRFields[]
+        setParsedRecords(records)
+        if (records.length === 1) {
+          applyParsedRecord(records[0])
+          setSelectedRecordIndex(0)
+        }
       } else if (!res.ok || result.error) {
-        setOcrError('Couldn\'t extract text. Fill in fields manually.')
+        setOcrError('Couldn\'t extract details. Fill in fields manually.')
       } else if (result.text) {
         setOcrText(result.text)
         setOcrMode(result.mode)
         updateField('ocr_raw_text', result.text)
-        
-        // Tabular Parsing
+
+        // Fallback: raw OCR text → heuristic tabular parsing
         const tableRecords = parseGRTable(result.text)
         setParsedRecords(tableRecords)
 
@@ -343,7 +355,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
               </h2>
               {ocrMode && (
                 <span className={`neu-badge ${ocrMode === 'mock' ? 'bg-[#d97706]/10 text-[#d97706]' : 'bg-[#16a34a]/10 text-[#16a34a]'}`}>
-                  {ocrMode === 'mock' ? 'Mock' : '✓ Real'}
+                  {ocrMode === 'mock' ? 'Mock' : ocrMode === 'gemini' ? '✨ Gemini' : '✓ Real'}
                 </span>
               )}
             </div>
