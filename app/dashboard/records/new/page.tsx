@@ -1,14 +1,24 @@
 'use client'
 
+import Link from 'next/link'
 import GRRecordForm from '@/components/GRRecordForm'
 
 export default function NewRecordPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <div>
-        <h1 className="text-2xl font-bold text-white">New GR Record</h1>
-        <p className="text-gray-400 mt-1 text-sm">
-          Upload a scanned image and fill in the student details.
+        <Link
+          href="/dashboard/records"
+          className="text-sm font-medium text-ink-soft hover:text-ink mb-4 inline-flex items-center gap-1.5 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to records
+        </Link>
+        <h1 className="text-3xl sm:text-4xl">New record</h1>
+        <p className="text-sm text-ink-soft mt-2">
+          Upload a scanned page, then confirm the student details before saving.
         </p>
       </div>
 

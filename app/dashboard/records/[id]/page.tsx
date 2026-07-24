@@ -86,12 +86,12 @@ export default function RecordDetailPage() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-[#6b6b6b]">
+      <div className="flex items-center justify-center py-20 text-ink-soft">
         <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span className="text-sm font-semibold">Loading…</span>
+        <span className="text-sm font-medium">Loading…</span>
       </div>
     )
   }
@@ -100,10 +100,10 @@ export default function RecordDetailPage() {
     return (
       <div className="space-y-4">
         <div className="neu-card-flat p-5" style={{ borderColor: '#dc2626' }}>
-          <p className="text-sm font-bold text-red-700">Record not found or no access</p>
-          <p className="text-xs text-red-600 mt-1">It may have been deleted.</p>
+          <p className="text-sm font-semibold text-error">Record not found or no access</p>
+          <p className="text-xs text-ink-soft mt-1">It may have been deleted.</p>
         </div>
-        <button onClick={() => router.push('/dashboard/records')} className="text-sm font-bold text-[#4338ca] hover:underline min-h-[44px]">
+        <button onClick={() => router.push('/dashboard/records')} className="text-sm font-semibold text-accent hover:underline min-h-[44px]">
           ← Back to records
         </button>
       </div>
@@ -114,60 +114,63 @@ export default function RecordDetailPage() {
   const canDelete = profile?.role === 'school_admin'
 
   const Field = ({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) => (
-    <div className="border-b border-[#d4d0c8] pb-3">
-      <dt className="text-[10px] font-bold text-[#9a9590] uppercase tracking-wider mb-1">{label}</dt>
-      <dd className={`text-sm font-bold ${mono ? 'text-mono' : ''}`}>
-        {value || <span className="text-[#d4d0c8] font-medium">—</span>}
+    <div className="border-b border-line pb-3">
+      <dt className="text-[11px] font-semibold text-ink-faint mb-1 font-gujarati">{label}</dt>
+      <dd className={`text-sm font-semibold ${mono ? 'text-mono' : ''}`}>
+        {value || <span className="text-ink-faint font-normal">—</span>}
       </dd>
     </div>
   )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* Back + Header */}
       <div>
-        <button onClick={() => router.push('/dashboard/records')} className="text-sm font-bold text-[#6b6b6b] hover:text-[#1a1a1a] mb-3 flex items-center min-h-[44px] transition">
-          ← Back
+        <button onClick={() => router.push('/dashboard/records')} className="text-sm font-medium text-ink-soft hover:text-ink mb-4 inline-flex items-center gap-1.5 transition-colors">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to records
         </button>
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-mono text-xs font-bold bg-[#1a1a1a] text-[#f0ede8] px-2.5 py-1 rounded-md">
+            <div className="flex items-center gap-2.5 mb-2.5 flex-wrap">
+              <span className="text-mono text-xs font-semibold bg-ink text-paper px-2.5 py-1 rounded-md">
                 GR-{record.gr_number}
               </span>
               {record.admission_standard && (
-                <span className="text-mono text-xs font-bold bg-[#e8e4de] text-[#6b6b6b] px-2.5 py-1 rounded-md">
+                <span className="text-mono text-xs font-semibold bg-surface-2 text-ink-soft px-2.5 py-1 rounded-md font-gujarati">
                   ધો. {record.admission_standard}
                 </span>
               )}
               {record.leaving_date ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-[#d97706]">
-                  <span className="w-2 h-2 rounded-full bg-[#d97706]" />
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-warning">
+                  <span className="w-1.5 h-1.5 rounded-full bg-warning" />
                   Left
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-[#16a34a]">
-                  <span className="w-2 h-2 rounded-full bg-[#16a34a]" />
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-success">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
                   Active
                 </span>
               )}
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            <h1 className="text-3xl sm:text-4xl">
               {record.student_name} {record.surname}
             </h1>
-            <p className="text-xs text-[#9a9590] font-semibold mt-1">
+            <p className="text-xs text-ink-faint mt-2">
               Added {new Date(record.created_at).toLocaleDateString()}
             </p>
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
             {canEdit && (
-              <Link href={`/dashboard/records/${record.id}/edit`} className="neu-btn neu-btn-ghost text-xs flex-1 sm:flex-none">
+              <Link href={`/dashboard/records/${record.id}/edit`} className="neu-btn neu-btn-ghost flex-1 sm:flex-none">
                 Edit
               </Link>
             )}
             {canDelete && (
-              <button onClick={handleDelete} disabled={deleting} className="neu-btn neu-btn-danger text-xs flex-1 sm:flex-none">
+              <button onClick={handleDelete} disabled={deleting} className="neu-btn neu-btn-danger flex-1 sm:flex-none">
                 {deleting ? 'Deleting…' : 'Delete'}
               </button>
             )}
@@ -177,20 +180,19 @@ export default function RecordDetailPage() {
 
       {deleteError && (
         <div className="neu-card-flat p-4" style={{ borderColor: '#dc2626' }}>
-          <p className="text-sm font-bold text-red-700">{deleteError}</p>
+          <p className="text-sm font-semibold text-error">{deleteError}</p>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Fields */}
         <div className="lg:col-span-2 space-y-5">
-
           {/* ── Section 1: મુખ્ય વિગતો (Left Page) ── */}
-          <div className="neu-card p-5 sm:p-6">
-            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-1">
-              પત્રક ૪ — મુખ્ય વિગતો / Primary Details
+          <div className="neu-card p-5 sm:p-7">
+            <h2 className="text-xs font-semibold text-ink-soft mb-1 font-gujarati">
+              પત્રક ૪ — મુખ્ય વિગતો / Primary details
             </h2>
-            <p className="text-[10px] text-[#9a9590] mb-5">રજિસ્ટરનું ડાબું પાનું</p>
+            <p className="text-[11px] text-ink-faint mb-5 font-gujarati">રજિસ્ટરનું ડાબું પાનું</p>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
               <Field label="રજિસ્ટર નંબર / GR Number" value={record.gr_number} mono />
               <Field label="વિદ્યાર્થીનું નામ / Student Name" value={record.student_name} />
@@ -208,11 +210,11 @@ export default function RecordDetailPage() {
           </div>
 
           {/* ── Section 2: શૈક્ષણિક વિગતો (Right Page) ── */}
-          <div className="neu-card p-5 sm:p-6">
-            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-1">
-              પત્રક ૫ — શૈક્ષણિક વિગતો / Academic Details
+          <div className="neu-card p-5 sm:p-7">
+            <h2 className="text-xs font-semibold text-ink-soft mb-1 font-gujarati">
+              પત્રક ૫ — શૈક્ષણિક વિગતો / Academic details
             </h2>
-            <p className="text-[10px] text-[#9a9590] mb-5">રજિસ્ટરનું જમણું પાનું</p>
+            <p className="text-[11px] text-ink-faint mb-5 font-gujarati">રજિસ્ટરનું જમણું પાનું</p>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
               <Field label="દાખલ થયા તારીખ / Admission Date" value={record.admission_date} mono />
               <Field label="દાખલ થયા ધોરણ / Admission Std." value={record.admission_standard} />
@@ -225,9 +227,9 @@ export default function RecordDetailPage() {
           </div>
 
           {record.ocr_raw_text && (
-            <div className="neu-card p-5 sm:p-6">
-              <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-3">OCR Text</h2>
-              <pre className="whitespace-pre-wrap text-xs text-[#6b6b6b] bg-[#e8e4de] rounded-lg p-4 max-h-60 overflow-y-auto text-mono leading-relaxed">
+            <div className="neu-card p-5 sm:p-7">
+              <h2 className="text-xs font-semibold text-ink-soft mb-3">Extracted text</h2>
+              <pre className="whitespace-pre-wrap text-xs text-ink-soft bg-surface-2 rounded-xl p-4 max-h-60 overflow-y-auto text-mono leading-relaxed">
                 {record.ocr_raw_text}
               </pre>
             </div>
@@ -236,23 +238,23 @@ export default function RecordDetailPage() {
 
         {/* Image */}
         <div>
-          <div className="neu-card p-5 sm:p-6">
-            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-4">Scan</h2>
+          <div className="neu-card p-5 sm:p-7 lg:sticky lg:top-24">
+            <h2 className="text-xs font-semibold text-ink-soft mb-4">Scanned page</h2>
             {imageUrl ? (
-              <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="block rounded-lg overflow-hidden border-2 border-[#1a1a1a] hover:border-[#4338ca] transition group relative">
-                <img src={imageUrl} alt="GR scan" className="w-full h-auto object-contain bg-[#e8e4de]" />
-                <div className="absolute inset-0 bg-transparent group-hover:bg-black/5 transition flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 bg-[#f0ede8] text-[#1a1a1a] text-xs px-4 py-2 rounded-md font-bold shadow-md transition-opacity border-2 border-[#1a1a1a]">
-                    View Full ↗
+              <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="block rounded-xl overflow-hidden border border-line hover:border-accent transition-colors group relative">
+                <img src={imageUrl} alt={`Scanned register page for ${record.student_name}`} className="w-full h-auto object-contain bg-surface-2" />
+                <div className="absolute inset-0 bg-transparent group-hover:bg-ink/5 transition-colors flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 bg-surface text-ink text-xs px-4 py-2 rounded-lg font-semibold shadow-[var(--shadow-md)] transition-opacity border border-line">
+                    View full ↗
                   </span>
                 </div>
               </a>
             ) : (
-              <div className="rounded-lg border-2 border-dashed border-[#d4d0c8] py-12 flex flex-col items-center justify-center text-[#9a9590]">
+              <div className="rounded-xl border border-dashed border-line-strong py-14 flex flex-col items-center justify-center text-ink-faint">
                 <svg className="w-8 h-8 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <span className="text-xs font-bold">No image</span>
+                <span className="text-xs font-medium">No image</span>
               </div>
             )}
           </div>

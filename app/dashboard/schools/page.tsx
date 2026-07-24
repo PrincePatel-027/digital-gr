@@ -17,10 +17,10 @@ interface School {
 export default function SchoolsManagementPage() {
   const router = useRouter()
   const { profile, session } = useAuth()
-  
+
   const [schools, setSchools] = useState<School[]>([])
   const [loading, setLoading] = useState(true)
-  
+
   // Create School Form State
   const [isSchoolFormOpen, setIsSchoolFormOpen] = useState(false)
   const [schoolForm, setSchoolForm] = useState({
@@ -35,6 +35,7 @@ export default function SchoolsManagementPage() {
     full_name: '', email: '', password: ''
   })
   const [adminError, setAdminError] = useState('')
+  const [adminSuccess, setAdminSuccess] = useState('')
   const [isCreatingAdmin, setIsCreatingAdmin] = useState(false)
 
   useEffect(() => {
@@ -95,6 +96,7 @@ export default function SchoolsManagementPage() {
   const handleCreateAdmin = async (e: React.FormEvent, schoolId: string) => {
     e.preventDefault()
     setAdminError('')
+    setAdminSuccess('')
     setIsCreatingAdmin(true)
 
     try {
@@ -114,7 +116,7 @@ export default function SchoolsManagementPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create admin')
 
-      alert('Admin account created successfully!')
+      setAdminSuccess(`Admin account created for ${adminForm.full_name || 'this school'}.`)
       setAdminFormOpenFor(null)
       setAdminForm({ full_name: '', email: '', password: '' })
     } catch (err: unknown) {
@@ -127,193 +129,210 @@ export default function SchoolsManagementPage() {
   if (!profile || profile.role !== 'super_admin') return null
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-7 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-[#0f2846] tracking-tight">Schools Management</h1>
-          <p className="text-[#0f2846]/70 mt-2 text-sm">Manage tenants and provision their initial admin accounts.</p>
+          <h1 className="text-4xl sm:text-5xl">Schools</h1>
+          <p className="text-sm text-ink-soft mt-2">
+            Manage tenants and provision their initial admin accounts.
+          </p>
         </div>
         <button
           onClick={() => setIsSchoolFormOpen(!isSchoolFormOpen)}
-          className="rounded-xl bg-[#3a86c6] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#3a86c6]/90 shadow-md transition cursor-pointer min-h-[44px]"
+          className={`neu-btn w-full sm:w-auto ${isSchoolFormOpen ? 'neu-btn-ghost' : 'neu-btn-accent'}`}
         >
-          {isSchoolFormOpen ? 'Cancel' : '+ Add School'}
+          {isSchoolFormOpen ? 'Cancel' : 'Add school'}
         </button>
       </div>
 
+      {/* Success banner */}
+      {adminSuccess && (
+        <div className="rounded-xl border border-success/25 bg-success/[0.08] px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm font-medium text-success">{adminSuccess}</p>
+          <button onClick={() => setAdminSuccess('')} className="text-success/70 hover:text-success" aria-label="Dismiss">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Create school form */}
       {isSchoolFormOpen && (
-        <div className="rounded-[24px] glass-panel p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-[#0f2846] mb-4">Register New School</h2>
+        <div className="neu-card p-5 sm:p-7">
+          <h2 className="font-display text-xl mb-5">Register a new school</h2>
           <form onSubmit={handleCreateSchool} className="space-y-4">
             {schoolError && (
-              <div className="p-3 text-sm text-red-700 bg-red-50/80 border border-red-200 rounded-xl shadow-sm">
-                {schoolError}
+              <div className="neu-card-flat p-3" style={{ borderColor: '#dc2626' }}>
+                <p className="text-sm text-error font-medium">{schoolError}</p>
               </div>
             )}
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-[#0f2846]/80 mb-1">School Name *</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">School name *</label>
                 <input
                   type="text"
                   required
                   value={schoolForm.name}
-                  onChange={(e) => setSchoolForm({...schoolForm, name: e.target.value})}
-                  className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
+                  onChange={(e) => setSchoolForm({ ...schoolForm, name: e.target.value })}
+                  className="neu-input"
+                  placeholder="e.g. Shree Vidyalaya Primary School"
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-[#0f2846]/80 mb-1">Address</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Address</label>
                 <input
                   type="text"
                   value={schoolForm.address}
-                  onChange={(e) => setSchoolForm({...schoolForm, address: e.target.value})}
-                  className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
+                  onChange={(e) => setSchoolForm({ ...schoolForm, address: e.target.value })}
+                  className="neu-input"
+                  placeholder="Town / district"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#0f2846]/80 mb-1">Contact Email</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Contact email</label>
                 <input
                   type="email"
                   value={schoolForm.contact_email}
-                  onChange={(e) => setSchoolForm({...schoolForm, contact_email: e.target.value})}
-                  className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
+                  onChange={(e) => setSchoolForm({ ...schoolForm, contact_email: e.target.value })}
+                  className="neu-input"
+                  placeholder="office@school.edu"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#0f2846]/80 mb-1">Contact Phone</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Contact phone</label>
                 <input
                   type="text"
                   value={schoolForm.contact_phone}
-                  onChange={(e) => setSchoolForm({...schoolForm, contact_phone: e.target.value})}
-                  className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
+                  onChange={(e) => setSchoolForm({ ...schoolForm, contact_phone: e.target.value })}
+                  className="neu-input"
+                  placeholder="+91 …"
                 />
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-4">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => setIsSchoolFormOpen(false)}
-                className="rounded-xl border border-[#0f2846]/20 bg-white/50 px-4 py-2.5 text-sm font-semibold text-[#0f2846] hover:bg-white/80 transition min-h-[44px] order-2 sm:order-1"
+                className="neu-btn neu-btn-ghost w-full sm:w-auto"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isCreatingSchool}
-                className="rounded-xl bg-[#0f2846] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2846]/90 transition disabled:opacity-50 min-h-[44px] shadow-md order-1 sm:order-2"
+                className="neu-btn neu-btn-primary w-full sm:w-auto"
               >
-                {isCreatingSchool ? 'Creating...' : 'Register School'}
+                {isCreatingSchool ? 'Creating…' : 'Register school'}
               </button>
             </div>
           </form>
         </div>
       )}
 
+      {/* Schools list */}
       <div className="space-y-4">
         {loading ? (
-          <div className="p-8 text-center text-[#0f2846]/60 rounded-[24px] glass-panel">
-            <div className="flex items-center justify-center">
-              <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Loading schools...
-            </div>
+          <div className="space-y-3" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="neu-card p-6 space-y-3">
+                <div className="h-5 w-48 rounded bg-surface-2 animate-pulse" />
+                <div className="h-3 w-64 rounded bg-surface-2 animate-pulse" />
+              </div>
+            ))}
           </div>
         ) : schools.length === 0 ? (
-          <div className="py-16 px-6 text-center rounded-[24px] border-dashed glass-panel">
-            <div className="w-16 h-16 rounded-[24px] bg-white/50 border border-white/60 shadow-sm flex items-center justify-center mx-auto mb-5">
-              <svg className="w-8 h-8 text-[#3a86c6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="neu-card p-12 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-ink flex items-center justify-center mx-auto mb-5">
+              <svg className="w-6 h-6 text-paper" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
               </svg>
             </div>
-            <h3 className="text-lg font-bold text-[#0f2846] mb-2">No schools have been registered</h3>
-            <p className="text-sm text-[#0f2846]/70 max-w-sm mx-auto">
-              Add your first school to start managing GR records. You can provision an admin account for each school after registering it.
+            <h2 className="font-display text-2xl mb-2">No schools yet</h2>
+            <p className="text-sm text-ink-soft max-w-sm mx-auto">
+              Add your first school to start managing GR records. You can provision an
+              admin account for each school after registering it.
             </p>
             <button
               onClick={() => setIsSchoolFormOpen(true)}
-              className="inline-flex items-center mt-6 text-sm font-semibold text-[#3a86c6] hover:text-[#0f2846] underline transition"
+              className="neu-btn neu-btn-primary mt-6 inline-flex"
             >
-              + Register your first school
+              Register first school
             </button>
           </div>
         ) : (
           schools.map((school) => (
-            <div key={school.id} className="rounded-[24px] glass-panel p-6 flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center">
-              <div>
-                <h3 className="text-xl font-bold text-[#0f2846]">{school.name}</h3>
-                <p className="text-sm text-[#0f2846]/60 mt-1 break-all font-mono font-medium">
-                  ID: {school.id}
-                </p>
-                <div className="flex flex-wrap gap-4 mt-3 text-sm text-[#0f2846]/70 font-medium">
-                  {school.contact_email && <span>Email: {school.contact_email}</span>}
-                  {school.contact_phone && <span>Phone: {school.contact_phone}</span>}
-                  <span>Added: {new Date(school.created_at).toLocaleDateString()}</span>
+            <div key={school.id} className="neu-card p-5 sm:p-6">
+              <div className="flex flex-col sm:flex-row gap-5 justify-between sm:items-start">
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold">{school.name}</h3>
+                  <p className="text-xs text-ink-faint mt-1 break-all text-mono">
+                    {school.id}
+                  </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-ink-soft">
+                    {school.contact_email && <span>{school.contact_email}</span>}
+                    {school.contact_phone && <span>{school.contact_phone}</span>}
+                    <span className="text-ink-faint">Added {new Date(school.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+
+                <div className="shrink-0 w-full sm:w-auto">
+                  <button
+                    onClick={() => { setAdminError(''); setAdminFormOpenFor(adminFormOpenFor === school.id ? null : school.id) }}
+                    className="neu-btn neu-btn-ghost w-full sm:w-auto"
+                  >
+                    {adminFormOpenFor === school.id ? 'Cancel' : 'Provision admin'}
+                  </button>
                 </div>
               </div>
-              
-              <div className="flex-shrink-0 w-full sm:w-auto">
-                <button
-                  onClick={() => setAdminFormOpenFor(adminFormOpenFor === school.id ? null : school.id)}
-                  className="w-full sm:w-auto rounded-xl border border-[#0f2846]/20 bg-white/50 px-4 py-2.5 text-sm font-semibold text-[#0f2846] hover:bg-white/80 transition min-h-[44px]"
-                >
-                  {adminFormOpenFor === school.id ? 'Cancel' : 'Provision Admin'}
-                </button>
-              </div>
 
-              {/* Inline Form for creating admin for THIS school */}
+              {/* Inline admin creation form */}
               {adminFormOpenFor === school.id && (
-                <div className="w-full mt-6 border-t border-white/40 pt-6">
-                  <h4 className="text-base font-bold text-[#0f2846] mb-4">Create Initial Admin for {school.name}</h4>
+                <div className="mt-6 border-t border-line pt-6">
+                  <h4 className="text-sm font-semibold mb-4">Create initial admin for {school.name}</h4>
                   <form onSubmit={(e) => handleCreateAdmin(e, school.id)} className="space-y-4">
                     {adminError && (
-                      <div className="p-3 text-sm text-red-700 bg-red-50/80 border border-red-200 rounded-xl shadow-sm">
-                        {adminError}
+                      <div className="neu-card-flat p-3" style={{ borderColor: '#dc2626' }}>
+                        <p className="text-sm text-error font-medium">{adminError}</p>
                       </div>
                     )}
-                    <div className="grid grid-cols-1 gap-4">
-                      <div>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Full Name"
-                          value={adminForm.full_name}
-                          onChange={(e) => setAdminForm({...adminForm, full_name: e.target.value})}
-                          className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
-                        />
-                      </div>
-                      <div>
-                        <input
-                          type="email"
-                          required
-                          placeholder="Admin Email"
-                          value={adminForm.email}
-                          onChange={(e) => setAdminForm({...adminForm, email: e.target.value})}
-                          className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
-                        />
-                      </div>
-                      <div>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Password (min 6 chars)"
-                          minLength={6}
-                          value={adminForm.password}
-                          onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
-                          className="w-full rounded-xl glass-input px-3 py-2.5 text-sm transition min-h-[44px]"
-                        />
-                      </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Full name"
+                        value={adminForm.full_name}
+                        onChange={(e) => setAdminForm({ ...adminForm, full_name: e.target.value })}
+                        className="neu-input"
+                      />
+                      <input
+                        type="email"
+                        required
+                        placeholder="Admin email"
+                        value={adminForm.email}
+                        onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })}
+                        className="neu-input"
+                      />
+                      <input
+                        type="password"
+                        required
+                        placeholder="Password (min 6 chars)"
+                        minLength={6}
+                        value={adminForm.password}
+                        onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
+                        className="neu-input"
+                      />
                     </div>
-                    <div className="flex justify-end mt-2">
+                    <div className="flex justify-end">
                       <button
                         type="submit"
                         disabled={isCreatingAdmin}
-                        className="rounded-xl bg-[#0f2846] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2846]/90 shadow-md transition disabled:opacity-50 min-h-[44px] w-full sm:w-auto"
+                        className="neu-btn neu-btn-primary w-full sm:w-auto"
                       >
-                        {isCreatingAdmin ? 'Creating...' : 'Create Admin Account'}
+                        {isCreatingAdmin ? 'Creating…' : 'Create admin account'}
                       </button>
                     </div>
                   </form>

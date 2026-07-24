@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractText, isOcrMockMode } from '@/lib/ocr'
 import { extractGRRecords, isGeminiConfigured } from '@/lib/gemini-extract'
-
-
+import { extractGRRecordsMistral, isMistralConfigured } from '@/lib/mistral-extract'
+import { structureWithSarvam, isSarvamConfigured } from '@/lib/sarvam-structure'
+import type { ParsedGRFields } from '@/lib/ocr-parser'
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,47 +45,70 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
-    // ── Primary path: Gemini vision → structured records (any layout) ──
-    // Reads the image directly and returns per-student fields as JSON. Falls back
-    // to OCR.space raw-text OCR if Gemini isn't configured or returns nothing.
-    if (isGeminiConfigured()) {
-      const g = await extractGRRecords(buffer)
-      if (g.records.length > 0) {
-        return NextResponse.json({
-          records: g.records,
-          text: g.raw,
-          mode: g.mode,
-          mock: false,
-          error: null,
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type,
-        })
-      }
-      // Gemini configured but produced no records — fall through to OCR.space,
-      // surfacing the Gemini error so the client can show something useful.
-      const ocr = await extractText(buffer)
-      return NextResponse.json({
-        text: ocr.text,
-        mode: ocr.mode,
-        mock: ocr.mode === 'mock',
-        error: ocr.error || g.error || null,
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-      })
-    }
-
-    const result = await extractText(buffer)
-
-    return NextResponse.json({
-      text: result.text,
-      mode: result.mode,
-      mock: result.mode === 'mock',
-      error: result.error || null,
+    const fileMeta = {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
+    }
+    const warnings: string[] = []
+
+    // ── Extraction chain (each layer is tried only if the previous found nothing) ──
+    //   1. Gemini  — vision → structured records
+    //   2. Mistral — vision → structured records (independent VLM)
+    //   3. OCR.space raw text → Sarvam (Gujarati-native) structures it → records
+    //   4. Raw OCR text returned for the client's heuristic parser / manual entry
+
+    // 1 + 2: vision providers that return structured records directly.
+    const visionProviders: Array<() => Promise<{ records: ParsedGRFields[]; raw: string; mode: string; error?: string }>> = []
+    if (isGeminiConfigured()) visionProviders.push(() => extractGRRecords(buffer))
+    if (isMistralConfigured()) visionProviders.push(() => extractGRRecordsMistral(buffer))
+
+    for (const run of visionProviders) {
+      const r = await run()
+      if (r.records.length > 0) {
+        return NextResponse.json({
+          records: r.records,
+          text: r.raw,
+          mode: r.mode,
+          mock: false,
+          error: null,
+          warning: warnings.join(' | ') || null,
+          ...fileMeta,
+        })
+      }
+      if (r.error) warnings.push(`${r.mode}: ${r.error}`)
+    }
+
+    // 3: raw OCR text (OCR.space), then let Sarvam structure it.
+    const ocr = await extractText(buffer)
+    const hasText = !!ocr.text && ocr.text !== '(No text detected in image)'
+    if (ocr.error) warnings.push(`ocr: ${ocr.error}`)
+
+    if (hasText && isSarvamConfigured()) {
+      const s = await structureWithSarvam(ocr.text)
+      if (s.records.length > 0) {
+        return NextResponse.json({
+          records: s.records,
+          text: ocr.text,
+          mode: 'sarvam',
+          mock: false,
+          error: null,
+          warning: warnings.join(' | ') || null,
+          ...fileMeta,
+        })
+      }
+      if (s.error) warnings.push(`sarvam: ${s.error}`)
+    }
+
+    // 4: no structured records anywhere — return raw text (client parses / manual
+    // entry). Only a FATAL error when there is no usable text at all.
+    return NextResponse.json({
+      text: ocr.text,
+      mode: ocr.mode,
+      mock: ocr.mode === 'mock',
+      error: hasText ? null : (ocr.error || warnings.join(' | ') || 'Could not extract any text from the image.'),
+      warning: warnings.join(' | ') || null,
+      ...fileMeta,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -96,20 +120,20 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET — quick health check
+// GET — quick health check: which providers are active, in chain order.
 export async function GET() {
-  if (isGeminiConfigured()) {
-    return NextResponse.json({
-      status: 'ok',
-      mode: 'gemini',
-      message: `Gemini vision extraction configured (model: ${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}). OCR.space is the fallback.`,
-    })
-  }
+  const chain: string[] = []
+  if (isGeminiConfigured()) chain.push(`gemini (${process.env.GEMINI_MODEL || 'gemini-2.5-flash'})`)
+  if (isMistralConfigured()) chain.push(`mistral (${process.env.MISTRAL_MODEL || 'mistral-small-latest'})`)
+  if (isSarvamConfigured()) chain.push(`sarvam (${process.env.SARVAM_MODEL || 'sarvam-30b'}) — structures OCR text`)
+  chain.push(isOcrMockMode() ? 'ocr.space (mock)' : 'ocr.space (raw text)')
+
   return NextResponse.json({
     status: 'ok',
-    mode: isOcrMockMode() ? 'mock' : 'real',
-    message: isOcrMockMode()
-      ? 'Running in MOCK mode — no OCR_SPACE_API_KEY configured. Get a free key at https://ocr.space/ocrapi/freekey'
-      : 'Real OCR.space API configured (Gujarati + English dual-pass). Set GEMINI_API_KEY to use Gemini vision instead.',
+    providers: chain,
+    message:
+      chain.length > 1
+        ? `Extraction chain (tried in order until one succeeds): ${chain.join(' → ')}.`
+        : 'Only OCR.space is configured. Add GEMINI_API_KEY / MISTRAL_API_KEY / SARVAM_API_KEY for accurate structured extraction.',
   })
 }
