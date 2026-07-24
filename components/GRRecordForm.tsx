@@ -101,6 +101,13 @@ const PARSEABLE_FIELDS: (keyof ParsedGRFields)[] = [
   'leaving_date', 'leaving_reason', 'leaving_standard', 'remarks',
 ]
 
+// Dot colour by extraction confidence
+function confidenceClass(confidence?: ParsedField['confidence']) {
+  if (confidence === 'high') return 'bg-success'
+  if (confidence === 'medium') return 'bg-warning'
+  return 'bg-error'
+}
+
 // ── Component ─────────────────────────────────────────────────
 export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const router = useRouter()
@@ -113,7 +120,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
   const [ocrText, setOcrText] = useState<string>(initialData?.ocr_raw_text || '')
   const [ocrLoading, setOcrLoading] = useState(false)
-  const [ocrMode, setOcrMode] = useState<'real' | 'mock' | 'gemini' | null>(null)
+  const [ocrMode, setOcrMode] = useState<'real' | 'mock' | 'gemini' | 'mistral' | 'sarvam' | null>(null)
   const [ocrError, setOcrError] = useState<string | null>(null)
 
   // Multi-record support
@@ -132,7 +139,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const applyParsedRecord = useCallback((parsed: ParsedGRFields) => {
     const filledKeys = new Set<keyof ParsedGRFields>()
     const updates: Partial<GRRecordData> = {}
-    
+
     // Clear out previous auto-filled data before applying new selection
     const resetForm = { ...EMPTY_FORM, image_url: form.image_url, ocr_raw_text: form.ocr_raw_text }
 
@@ -143,7 +150,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
         filledKeys.add(field)
       }
     }
-    
+
     setForm({ ...resetForm, ...updates })
     setAutoFilledFields(filledKeys)
     setErrors({}) // clear errors on new selection
@@ -189,8 +196,13 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       const res = await fetch('/api/ocr-test', { method: 'POST', body: formData })
       const result = await res.json()
 
+      const hasUsableText =
+        typeof result.text === 'string' &&
+        result.text.trim().length > 0 &&
+        result.text !== '(No text detected in image)'
+
       if (res.status === 429) {
-        setOcrError('Extraction service at capacity. Fill in fields manually or try again later.')
+        setOcrError('Extraction service is busy right now. Fill in the fields manually, or try again in a moment.')
       } else if (Array.isArray(result.records) && result.records.length > 0) {
         // Structured records straight from the vision model — no text parsing needed.
         setOcrText(result.text || '')
@@ -203,22 +215,24 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           applyParsedRecord(records[0])
           setSelectedRecordIndex(0)
         }
-      } else if (!res.ok || result.error) {
-        setOcrError('Couldn\'t extract details. Fill in fields manually.')
-      } else if (result.text) {
+      } else if (hasUsableText) {
+        // No structured records, but text DID come back (e.g. Gemini was busy and
+        // we fell back to raw OCR). Show it and run the heuristic parser so the
+        // user can still auto-fill or copy from it — never discard usable text.
         setOcrText(result.text)
         setOcrMode(result.mode)
         updateField('ocr_raw_text', result.text)
 
-        // Fallback: raw OCR text → heuristic tabular parsing
         const tableRecords = parseGRTable(result.text)
         setParsedRecords(tableRecords)
 
         if (tableRecords.length === 1) {
-          // Auto-select if only 1 student is found
           applyParsedRecord(tableRecords[0])
           setSelectedRecordIndex(0)
         }
+      } else {
+        // Nothing usable came back from either the vision model or OCR fallback.
+        setOcrError('Couldn\'t read the register page automatically. Please fill in the fields manually.')
       }
     } catch (err) {
       console.error('OCR error:', err)
@@ -300,14 +314,11 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
     return (
       <div>
-        <label htmlFor={`field-${field}`} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">
+        <label htmlFor={`field-${field}`} className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-soft mb-2">
           {FIELD_LABELS[field]}
-          {isRequired && <span className="text-red-500">*</span>}
+          {isRequired && <span className="text-error">*</span>}
           {isAutoFilled && parsed && (
-            <span className={`w-2 h-2 rounded-full ${
-              parsed.confidence === 'high' ? 'bg-[#16a34a]' :
-              parsed.confidence === 'medium' ? 'bg-[#d97706]' : 'bg-[#dc2626]'
-            }`} title={`${parsed.confidence} confidence`} />
+            <span className={`w-2 h-2 rounded-full ${confidenceClass(parsed.confidence)}`} title={`${parsed.confidence} confidence`} />
           )}
         </label>
         {type === 'textarea' ? (
@@ -317,7 +328,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
             onChange={(e) => updateField(field, e.target.value)}
             rows={opts?.rows || 3}
             placeholder={opts?.placeholder}
-            className={`neu-input resize-none ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-[#16a34a]/40' : ''}`}
+            className={`neu-input resize-none ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-success/50' : ''}`}
           />
         ) : (
           <input
@@ -326,10 +337,10 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
             value={form[field]}
             onChange={(e) => updateField(field, e.target.value)}
             placeholder={opts?.placeholder}
-            className={`neu-input ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-[#16a34a]/40' : ''}`}
+            className={`neu-input ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-success/50' : ''}`}
           />
         )}
-        {hasError && <p className="text-xs text-red-500 font-semibold mt-1">{errors[field]}</p>}
+        {hasError && <p className="text-xs text-error font-medium mt-1.5">{errors[field]}</p>}
       </div>
     )
   }
@@ -340,9 +351,9 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       {mode === 'create' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Upload */}
-          <div className="neu-card p-5 sm:p-6 space-y-3">
-            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b]">
-              1. Upload Scan
+          <div className="neu-card p-5 sm:p-6 space-y-4">
+            <h2 className="text-xs font-semibold text-ink-soft">
+              <span className="text-accent">1</span> · Upload scan
             </h2>
             <ImageUploader onUpload={handleImageUpload} />
           </div>
@@ -350,32 +361,38 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           {/* Scan Results */}
           <div className="neu-card p-5 sm:p-6 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b]">
-                Scan Results
-              </h2>
+              <h2 className="text-xs font-semibold text-ink-soft">Scan results</h2>
               {ocrMode && (
-                <span className={`neu-badge ${ocrMode === 'mock' ? 'bg-[#d97706]/10 text-[#d97706]' : 'bg-[#16a34a]/10 text-[#16a34a]'}`}>
-                  {ocrMode === 'mock' ? 'Mock' : ocrMode === 'gemini' ? '✨ Gemini' : '✓ Real'}
+                <span className={`neu-badge ${ocrMode === 'mock' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
+                  {ocrMode === 'gemini'
+                    ? 'Gemini vision'
+                    : ocrMode === 'mistral'
+                      ? 'Mistral vision'
+                      : ocrMode === 'sarvam'
+                        ? 'Sarvam AI'
+                        : ocrMode === 'mock'
+                          ? 'Sample data'
+                          : 'OCR text'}
                 </span>
               )}
             </div>
 
             {ocrLoading ? (
-              <div className="flex flex-col items-center gap-3 py-10 text-[#6b6b6b]">
+              <div className="flex flex-col items-center gap-3 py-10 text-ink-soft">
                 <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span className="text-sm font-bold">Scanning Table…</span>
+                <span className="text-sm font-medium">Reading the page…</span>
               </div>
             ) : parsedRecords.length > 0 ? (
               <>
-                <div className="rounded-lg bg-[#16a34a]/10 border-2 border-[#16a34a]/20 px-4 py-3 mb-3">
-                  <p className="text-sm font-bold text-[#16a34a]">
-                    ✨ {parsedRecords.length} student record{parsedRecords.length !== 1 ? 's' : ''} detected
+                <div className="rounded-xl bg-success/[0.08] border border-success/25 px-4 py-3 mb-3">
+                  <p className="text-sm font-semibold text-success">
+                    {parsedRecords.length} student record{parsedRecords.length !== 1 ? 's' : ''} found
                   </p>
-                  <p className="text-xs text-[#16a34a]/70 mt-0.5">
-                    {parsedRecords.length > 1 ? 'Select a student below to populate the form:' : 'Review extracted fields below:'}
+                  <p className="text-xs text-success/80 mt-0.5">
+                    {parsedRecords.length > 1 ? 'Select a student below to populate the form.' : 'Review the extracted fields below.'}
                   </p>
                 </div>
 
@@ -390,27 +407,27 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                           applyParsedRecord(rec)
                           setSelectedRecordIndex(idx)
                         }}
-                        className={`text-left p-3 rounded-lg border-2 transition ${
+                        className={`text-left p-3 rounded-xl border transition-colors ${
                           selectedRecordIndex === idx
-                            ? 'border-[#16a34a] bg-[#16a34a]/10'
-                            : 'border-[#d4d0c8] hover:border-[#1a1a1a] bg-white'
+                            ? 'border-success bg-success/[0.08]'
+                            : 'border-line hover:border-ink bg-surface'
                         }`}
                       >
                         <div className="flex justify-between items-center">
-                          <span className="font-bold text-sm text-[#1a1a1a] truncate pr-2">
-                            {rec.student_name?.value || '(Unknown Name)'}
+                          <span className="font-semibold text-sm text-ink truncate pr-2">
+                            {rec.student_name?.value || '(Unknown name)'}
                           </span>
                           {selectedRecordIndex === idx && (
-                            <span className="text-[#16a34a] flex-shrink-0">
+                            <span className="text-success shrink-0">
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                               </svg>
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-[#6b6b6b] mt-1 flex gap-3">
-                          <span>GR: <span className="font-semibold text-mono">{rec.gr_number?.value || '-'}</span></span>
-                          <span>DOB: <span className="font-semibold text-mono">{rec.date_of_birth?.value || '-'}</span></span>
+                        <div className="text-xs text-ink-soft mt-1 flex gap-3">
+                          <span>GR: <span className="font-medium text-mono">{rec.gr_number?.value || '-'}</span></span>
+                          <span>DOB: <span className="font-medium text-mono">{rec.date_of_birth?.value || '-'}</span></span>
                         </div>
                       </button>
                     ))}
@@ -419,27 +436,31 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
                 {/* Selected Student Fields Overview */}
                 {selectedParsedFields && (
-                  <div className={`space-y-1.5 max-h-[250px] overflow-y-auto ${parsedRecords.length > 1 ? 'mt-4 pt-4 border-t-2 border-[#d4d0c8]' : ''}`}>
-                    {PARSEABLE_FIELDS.map((field) => {
-                      const p = selectedParsedFields[field]
-                      if (!p) return null
-                      return (
-                        <div key={field} className="flex items-start gap-2 text-sm">
-                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
-                            p.confidence === 'high' ? 'bg-[#16a34a]' : p.confidence === 'medium' ? 'bg-[#d97706]' : 'bg-[#dc2626]'
-                          }`} />
-                          <span className="text-[#9a9590] text-xs font-bold min-w-[80px]">{FIELD_LABELS[field].split(' /')[0]}</span>
-                          <span className="text-[#1a1a1a] text-xs font-semibold">{p.value}</span>
-                        </div>
-                      )
-                    })}
+                  <div className={parsedRecords.length > 1 ? 'mt-4 pt-4 border-t border-line' : ''}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold text-ink-faint">Extracted fields</span>
+                      <span className="text-[11px] text-ink-faint text-mono">{parsedCount.total} filled</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
+                      {PARSEABLE_FIELDS.map((field) => {
+                        const p = selectedParsedFields[field]
+                        if (!p) return null
+                        return (
+                          <div key={field} className="flex items-start gap-2 text-sm">
+                            <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${confidenceClass(p.confidence)}`} />
+                            <span className="text-ink-faint text-xs font-medium min-w-[80px]">{FIELD_LABELS[field].split(' /')[0]}</span>
+                            <span className="text-ink text-xs font-medium">{p.value}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
 
                 <button
                   type="button"
                   onClick={() => setShowRawText(!showRawText)}
-                  className="mt-3 text-xs text-[#9a9590] hover:text-[#6b6b6b] font-bold transition flex items-center gap-1"
+                  className="mt-3 text-xs text-ink-faint hover:text-ink-soft font-medium transition-colors flex items-center gap-1"
                 >
                   <svg className={`w-3 h-3 transition-transform ${showRawText ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -447,28 +468,28 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                   {showRawText ? 'Hide' : 'Show'} raw text
                 </button>
                 {showRawText && (
-                  <pre className="whitespace-pre-wrap text-xs text-[#6b6b6b] bg-[#e8e4de] rounded-lg p-3 mt-2 max-h-[200px] overflow-y-auto text-mono">{ocrText}</pre>
+                  <pre className="whitespace-pre-wrap text-xs text-ink-soft bg-surface-2 rounded-xl p-3 mt-2 max-h-[200px] overflow-y-auto text-mono">{ocrText}</pre>
                 )}
               </>
             ) : ocrText && parsedRecords.length === 0 ? (
               <>
-                <div className="rounded-lg bg-[#d97706]/10 border-2 border-[#d97706]/20 px-4 py-3">
-                  <p className="text-sm font-bold text-[#d97706]">Text detected but no student records identified</p>
-                  <p className="text-xs text-[#d97706]/70 mt-0.5">Fill in manually using the text below</p>
+                <div className="rounded-xl bg-warning/[0.08] border border-warning/25 px-4 py-3">
+                  <p className="text-sm font-semibold text-warning">Text detected, but no student records identified</p>
+                  <p className="text-xs text-warning/80 mt-0.5">Fill in the fields manually using the text below.</p>
                 </div>
-                <pre className="whitespace-pre-wrap text-xs text-[#6b6b6b] bg-[#e8e4de] rounded-lg p-3 max-h-[250px] overflow-y-auto text-mono">{ocrText}</pre>
+                <pre className="whitespace-pre-wrap text-xs text-ink-soft bg-surface-2 rounded-xl p-3 max-h-[250px] overflow-y-auto text-mono">{ocrText}</pre>
               </>
             ) : ocrError ? (
-              <div className="rounded-lg bg-[#d97706]/10 border-2 border-[#d97706]/20 px-4 py-3">
-                <p className="text-sm font-bold text-[#d97706]">{ocrError}</p>
+              <div className="rounded-xl bg-warning/[0.08] border border-warning/25 px-4 py-3">
+                <p className="text-sm font-medium text-warning">{ocrError}</p>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-[#9a9590] gap-2">
+              <div className="flex flex-col items-center justify-center py-12 text-ink-faint gap-2">
                 <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
                 </svg>
-                <span className="text-xs font-bold">Upload to auto-detect</span>
+                <span className="text-xs font-medium">Upload a page to auto-detect fields</span>
               </div>
             )}
           </div>
@@ -478,7 +499,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       {/* Edit mode image */}
       {mode === 'edit' && form.image_url && (
         <div className="neu-card p-5 sm:p-6">
-          <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-3">Scanned Image</h2>
+          <h2 className="text-xs font-semibold text-ink-soft mb-3">Scanned image</h2>
           <ImagePreview storagePath={form.image_url} />
         </div>
       )}
@@ -486,17 +507,18 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       {/* ═══════════════════════════════════════════════════════
           SECTION 1: મુખ્ય વિગતો — Primary Details (Left Page)
           ═══════════════════════════════════════════════════════ */}
-      <div className="neu-card p-5 sm:p-6 space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="neu-card p-5 sm:p-7 space-y-5">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b]">
-              {mode === 'create' ? '2.' : ''} પત્રક ૪ — મુખ્ય વિગતો / Primary Details
+            <h2 className="text-sm font-semibold text-ink">
+              {mode === 'create' && <span className="text-accent">2 · </span>}
+              પત્રક ૪ — મુખ્ય વિગતો / Primary details
             </h2>
-            <p className="text-[10px] text-[#9a9590] mt-0.5">રજિસ્ટરનું ડાબું પાનું / Left page of register</p>
+            <p className="text-[11px] text-ink-faint mt-0.5">રજિસ્ટરનું ડાબું પાનું / Left page of register</p>
           </div>
           {autoFilledFields.size > 0 && (
-            <span className="neu-badge bg-[#16a34a]/10 text-[#16a34a]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a]" />
+            <span className="neu-badge bg-success/10 text-success shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-success" />
               {autoFilledFields.size} auto-filled
             </span>
           )}
@@ -504,8 +526,8 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
         {saveError && (
           <div className="neu-card-flat p-4" style={{ borderColor: '#dc2626' }}>
-            <p className="text-sm font-bold text-red-700">Save failed</p>
-            <p className="text-xs text-red-600 mt-1">{saveError}</p>
+            <p className="text-sm font-semibold text-error">Save failed</p>
+            <p className="text-xs text-ink-soft mt-1">{saveError}</p>
           </div>
         )}
 
@@ -531,12 +553,13 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       {/* ═══════════════════════════════════════════════════════
           SECTION 2: શૈક્ષણિક વિગતો — Academic Details (Right Page)
           ═══════════════════════════════════════════════════════ */}
-      <div className="neu-card p-5 sm:p-6 space-y-5">
+      <div className="neu-card p-5 sm:p-7 space-y-5">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b]">
-            {mode === 'create' ? '3.' : ''} પત્રક ૫ — શૈક્ષણિક વિગતો / Academic Details
+          <h2 className="text-sm font-semibold text-ink">
+            {mode === 'create' && <span className="text-accent">3 · </span>}
+            પત્રક ૫ — શૈક્ષણિક વિગતો / Academic details
           </h2>
-          <p className="text-[10px] text-[#9a9590] mt-0.5">રજિસ્ટરનું જમણું પાનું / Right page of register</p>
+          <p className="text-[11px] text-ink-faint mt-0.5">રજિસ્ટરનું જમણું પાનું / Right page of register</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
@@ -562,7 +585,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           <button
             type="button"
             onClick={() => router.back()}
-            className="neu-btn neu-btn-ghost w-full sm:w-auto text-xs"
+            className="neu-btn neu-btn-ghost w-full sm:w-auto"
           >
             Cancel
           </button>
@@ -570,9 +593,9 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
             id="form-submit"
             type="submit"
             disabled={saving}
-            className="neu-btn neu-btn-primary w-full sm:w-auto text-xs"
+            className="neu-btn neu-btn-primary w-full sm:w-auto"
           >
-            {saving ? 'Saving…' : mode === 'create' ? 'Save Record' : 'Update Record'}
+            {saving ? 'Saving…' : mode === 'create' ? 'Save record' : 'Update record'}
           </button>
         </div>
       </div>
@@ -590,6 +613,6 @@ function ImagePreview({ storagePath }: { storagePath: string }) {
     load()
   }, [storagePath])
 
-  if (!url) return <p className="text-sm text-[#6b6b6b] font-medium">Loading image…</p>
-  return <img src={url} alt="GR scan" className="w-full max-h-64 object-contain rounded-lg bg-[#e8e4de]" />
+  if (!url) return <p className="text-sm text-ink-soft font-medium">Loading image…</p>
+  return <img src={url} alt="Scanned register page" className="w-full max-h-64 object-contain rounded-xl bg-surface-2" />
 }

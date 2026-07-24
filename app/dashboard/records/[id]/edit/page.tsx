@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import GRRecordForm, { type GRRecordData } from '@/components/GRRecordForm'
@@ -79,12 +80,12 @@ export default function EditRecordPage() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-[#6b6b6b]">
+      <div className="flex items-center justify-center py-20 text-ink-soft">
         <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span className="text-sm font-semibold">Loading record…</span>
+        <span className="text-sm font-medium">Loading record…</span>
       </div>
     )
   }
@@ -93,11 +94,11 @@ export default function EditRecordPage() {
     return (
       <div className="space-y-4">
         <div className="neu-card-flat p-5" style={{ borderColor: '#dc2626' }}>
-          <p className="text-sm font-bold text-red-700">{error}</p>
+          <p className="text-sm font-semibold text-error">{error}</p>
         </div>
         <button
           onClick={() => router.push('/dashboard/records')}
-          className="text-sm font-bold text-[#4338ca] hover:underline min-h-[44px]"
+          className="text-sm font-semibold text-accent hover:underline min-h-[44px]"
         >
           ← Back to records
         </button>
@@ -108,12 +109,21 @@ export default function EditRecordPage() {
   if (!record) return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">
-          Edit Record — GR #{record.gr_number}
+        <Link
+          href={`/dashboard/records/${recordId}`}
+          className="text-sm font-medium text-ink-soft hover:text-ink mb-4 inline-flex items-center gap-1.5 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to record
+        </Link>
+        <h1 className="text-3xl sm:text-4xl">
+          Edit GR-{record.gr_number}
         </h1>
-        <p className="text-sm text-[#6b6b6b] mt-1 font-medium">
+        <p className="text-sm text-ink-soft mt-2">
           Update the student details below.
         </p>
       </div>

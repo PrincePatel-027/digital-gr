@@ -105,55 +105,55 @@ export default function StaffManagementPage() {
   if (!profile || profile.role !== 'school_admin') return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Staff</h1>
-          <p className="text-sm text-[#6b6b6b] mt-1 font-medium">Manage access for your school.</p>
+          <h1 className="text-4xl sm:text-5xl">Staff</h1>
+          <p className="text-sm text-ink-soft mt-2">Manage who can access your school&apos;s records.</p>
         </div>
         <button
           onClick={() => setIsFormOpen(!isFormOpen)}
-          className={`neu-btn text-xs w-full sm:w-auto ${isFormOpen ? 'neu-btn-ghost' : 'neu-btn-accent'}`}
+          className={`neu-btn w-full sm:w-auto ${isFormOpen ? 'neu-btn-ghost' : 'neu-btn-accent'}`}
         >
-          {isFormOpen ? 'Cancel' : '+ Add Staff'}
+          {isFormOpen ? 'Cancel' : 'Add staff'}
         </button>
       </div>
 
       {/* Create Form */}
       {isFormOpen && (
-        <div className="neu-card p-5 sm:p-6">
-          <h2 className="text-base font-extrabold mb-4">New Account</h2>
+        <div className="neu-card p-5 sm:p-7">
+          <h2 className="font-display text-xl mb-5">New account</h2>
           <form onSubmit={handleCreateStaff} className="space-y-4">
             {formError && (
               <div className="neu-card-flat p-3" style={{ borderColor: '#dc2626' }}>
-                <p className="text-sm text-red-700 font-bold">{formError}</p>
+                <p className="text-sm text-error font-medium">{formError}</p>
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">Full Name *</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Full name *</label>
                 <input
                   value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   required
-                  placeholder="e.g. Rajesh Patel"
+                  placeholder="e.g. Anjali Desai"
                   className="neu-input"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">Email *</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Email *</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
-                  placeholder="staff@school.com"
+                  placeholder="staff@school.edu"
                   className="neu-input"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">Password *</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Password *</label>
                 <input
                   type="password"
                   value={formData.password}
@@ -165,7 +165,7 @@ export default function StaffManagementPage() {
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[#6b6b6b] mb-2">Role *</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Role *</label>
                 <select
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as 'staff' | 'principal' })}
@@ -176,8 +176,8 @@ export default function StaffManagementPage() {
                 </select>
               </div>
             </div>
-            <button type="submit" disabled={isSubmitting} className="neu-btn neu-btn-primary text-xs w-full sm:w-auto">
-              {isSubmitting ? 'Creating…' : 'Create Account'}
+            <button type="submit" disabled={isSubmitting} className="neu-btn neu-btn-primary w-full sm:w-auto">
+              {isSubmitting ? 'Creating…' : 'Create account'}
             </button>
           </form>
         </div>
@@ -185,12 +185,12 @@ export default function StaffManagementPage() {
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-16 text-[#6b6b6b]">
+        <div className="flex items-center justify-center py-16 text-ink-soft">
           <svg className="w-5 h-5 animate-spin mr-3" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span className="text-sm font-semibold">Loading…</span>
+          <span className="text-sm font-medium">Loading…</span>
         </div>
       )}
 
@@ -199,31 +199,31 @@ export default function StaffManagementPage() {
         <div className="hidden sm:block neu-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b-2 border-[#1a1a1a]">
-                <th className="px-5 py-3.5 text-left text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Name</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Role</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#6b6b6b] uppercase tracking-wider">Action</th>
+              <tr className="border-b border-line-strong">
+                <th className="px-5 py-3.5 text-left text-[11px] font-semibold text-ink-faint tracking-wide">Name</th>
+                <th className="px-5 py-3.5 text-left text-[11px] font-semibold text-ink-faint tracking-wide">Role</th>
+                <th className="px-5 py-3.5 text-left text-[11px] font-semibold text-ink-faint tracking-wide">Status</th>
+                <th className="px-5 py-3.5 text-right text-[11px] font-semibold text-ink-faint tracking-wide">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#d4d0c8]">
+            <tbody className="divide-y divide-line">
               {staff.map((s) => (
-                <tr key={s.id} className="hover:bg-black/[0.02] transition">
-                  <td className="px-5 py-3.5 font-bold">{s.full_name}</td>
-                  <td className="px-5 py-3.5">
-                    <span className="neu-badge bg-[#1a1a1a]/5 text-[#1a1a1a]">{ROLE_LABELS[s.role] || s.role}</span>
+                <tr key={s.id} className="hover:bg-ink/[0.03] transition-colors">
+                  <td className="px-5 py-4 font-semibold">{s.full_name}</td>
+                  <td className="px-5 py-4">
+                    <span className="neu-badge bg-surface-2 text-ink-soft">{ROLE_LABELS[s.role] || s.role}</span>
                   </td>
-                  <td className="px-5 py-3.5">
-                    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase ${s.is_active ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                      <span className={`w-2 h-2 rounded-full ${s.is_active ? 'bg-[#16a34a]' : 'bg-[#dc2626]'}`} />
+                  <td className="px-5 py-4">
+                    <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${s.is_active ? 'text-success' : 'text-error'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${s.is_active ? 'bg-success' : 'bg-error'}`} />
                       {s.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-right">
+                  <td className="px-5 py-4 text-right">
                     {s.id !== profile.id && (
                       <button
                         onClick={() => toggleStatus(s.id, s.is_active)}
-                        className={`text-xs font-bold ${s.is_active ? 'text-[#dc2626] hover:underline' : 'text-[#16a34a] hover:underline'}`}
+                        className={`text-xs font-semibold hover:underline ${s.is_active ? 'text-error' : 'text-success'}`}
                       >
                         {s.is_active ? 'Deactivate' : 'Activate'}
                       </button>
@@ -241,13 +241,13 @@ export default function StaffManagementPage() {
         <div className="sm:hidden space-y-3">
           {staff.map((s) => (
             <div key={s.id} className="neu-card p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-extrabold">{s.full_name}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="neu-badge bg-[#1a1a1a]/5 text-[#1a1a1a]">{ROLE_LABELS[s.role] || s.role}</span>
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${s.is_active ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${s.is_active ? 'bg-[#16a34a]' : 'bg-[#dc2626]'}`} />
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate">{s.full_name}</p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="neu-badge bg-surface-2 text-ink-soft">{ROLE_LABELS[s.role] || s.role}</span>
+                    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${s.is_active ? 'text-success' : 'text-error'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${s.is_active ? 'bg-success' : 'bg-error'}`} />
                       {s.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </div>
@@ -255,11 +255,11 @@ export default function StaffManagementPage() {
                 {s.id !== profile.id && (
                   <button
                     onClick={() => toggleStatus(s.id, s.is_active)}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-md border-2 min-h-[36px] ${
+                    className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border min-h-[36px] transition-colors ${
                       s.is_active
-                        ? 'border-[#dc2626]/20 text-[#dc2626] hover:border-[#dc2626]'
-                        : 'border-[#16a34a]/20 text-[#16a34a] hover:border-[#16a34a]'
-                    } transition`}
+                        ? 'border-error/25 text-error hover:border-error'
+                        : 'border-success/25 text-success hover:border-success'
+                    }`}
                   >
                     {s.is_active ? 'Deactivate' : 'Activate'}
                   </button>
@@ -272,9 +272,9 @@ export default function StaffManagementPage() {
 
       {/* Empty */}
       {!loading && staff.length === 0 && (
-        <div className="neu-card p-10 text-center">
-          <h3 className="text-lg font-extrabold mb-2">No staff members</h3>
-          <p className="text-sm text-[#6b6b6b]">Add your first staff member above.</p>
+        <div className="neu-card p-12 text-center">
+          <h2 className="font-display text-2xl mb-2">No staff members</h2>
+          <p className="text-sm text-ink-soft">Add your first staff member above.</p>
         </div>
       )}
     </div>
