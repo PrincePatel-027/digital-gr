@@ -76,9 +76,34 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { profile, loading, signOut } = useAuth()
+  const { profile, loading, profileMissing, signOut } = useAuth()
   const pathname = usePathname()
   const [showUserMenu, setShowUserMenu] = useState(false)
+
+  // Signed in, but the account has no profile row — so it belongs to no school and
+  // there is nothing to show. Explain it instead of spinning forever.
+  if (!loading && !profile && profileMissing) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-5">
+        <div className="neu-card p-8 max-w-md text-center">
+          <div className="w-12 h-12 rounded-2xl bg-warning/12 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-6 h-6 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          </div>
+          <h1 className="font-display text-2xl mb-3">Account not linked to a school</h1>
+          <p className="text-sm text-ink-soft leading-relaxed mb-6">
+            Your login works, but it isn&apos;t assigned to a school yet, so there
+            are no records to show. Ask your administrator to add your account to
+            your school.
+          </p>
+          <button onClick={signOut} className="neu-btn neu-btn-primary w-full">
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (loading || !profile) {
     return (

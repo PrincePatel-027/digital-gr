@@ -35,6 +35,7 @@ export default function DashboardPage() {
   }, [profile])
 
   const canCreate = profile?.role === 'staff' || profile?.role === 'school_admin'
+  const isSuperAdmin = profile?.role === 'super_admin'
   const firstName = profile?.full_name?.split(' ')[0] || 'there'
 
   return (
@@ -45,8 +46,25 @@ export default function DashboardPage() {
           Welcome back, {firstName}
         </p>
         <h1 className="text-4xl sm:text-5xl">
-          {profile?.schools?.name || 'Dashboard'}
+          {profile?.schools?.name || (isSuperAdmin ? 'All schools' : 'Dashboard')}
         </h1>
+
+        {/* Make the tenancy explicit: this login only ever sees this school. */}
+        {profile?.schools?.name ? (
+          <p className="mt-4 inline-flex items-start gap-2 text-xs text-ink-soft rounded-xl border border-line bg-surface px-3.5 py-2.5">
+            <svg className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            <span>
+              This register belongs to <span className="font-semibold text-ink">{profile.schools.name}</span>.
+              Only your school&apos;s staff can see these records.
+            </span>
+          </p>
+        ) : isSuperAdmin ? (
+          <p className="mt-4 text-sm text-ink-soft">
+            You&apos;re signed in as super admin — manage schools and their administrators.
+          </p>
+        ) : null}
       </header>
 
       {/* Stats */}

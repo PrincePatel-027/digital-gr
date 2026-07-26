@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -10,6 +10,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  // Read the redirect reason from the URL. Done via window.location rather than
+  // useSearchParams so this page needs no Suspense boundary when prerendered.
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get('reason')
+    if (reason === 'deactivated') {
+      setNotice('Your account has been deactivated. Please contact your school administrator.')
+    } else if (reason === 'no-school') {
+      setNotice('Your account is not linked to a school yet. Please contact your administrator.')
+    }
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -80,9 +92,21 @@ export default function LoginPage() {
           <div className="mb-8">
             <h2 className="font-display text-3xl tracking-tight mb-2">Sign in</h2>
             <p className="text-sm text-ink-soft">
-              Enter your credentials to reach your dashboard.
+              Your school&apos;s register is private to your school. Sign in to reach it.
             </p>
           </div>
+
+          {notice && (
+            <div
+              role="status"
+              className="mb-6 flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning/[0.08] px-4 py-3"
+            >
+              <svg className="w-4 h-4 text-warning mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <p className="text-sm text-warning font-medium">{notice}</p>
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-5" noValidate>
             {error && (

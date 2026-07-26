@@ -58,10 +58,19 @@ export default function RecordsListPage() {
     if (!profile) return
     setLoading(true)
     setError(null)
-    const { data, error: fetchErr } = await supabase
+
+    // RLS already restricts rows to the caller's school. Filtering explicitly as
+    // well is defence in depth: if a policy is ever changed or dropped, this query
+    // still cannot show another school's records. super_admin has no school_id and
+    // is intentionally allowed to see across schools.
+    let query = supabase
       .from('gr_records')
       .select('id, gr_number, student_name, surname, fathers_name, date_of_birth, admission_date, admission_standard, leaving_date, image_url, created_at')
-      .order('created_at', { ascending: false })
+    if (profile.school_id) {
+      query = query.eq('school_id', profile.school_id)
+    }
+
+    const { data, error: fetchErr } = await query.order('created_at', { ascending: false })
 
     if (fetchErr) {
       setError(fetchErr.message)

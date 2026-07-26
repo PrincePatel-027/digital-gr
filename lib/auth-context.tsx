@@ -28,6 +28,12 @@ interface AuthContextValue {
   session: Session | null
   profile: Profile | null
   loading: boolean
+  /**
+   * True when the user is authenticated but has NO usable profile row, so we
+   * cannot tell which school they belong to. Without this the UI waits forever on
+   * a spinner; with it we can explain the problem instead.
+   */
+  profileMissing: boolean
   signOut: () => Promise<void>
 }
 
@@ -36,6 +42,7 @@ const AuthContext = createContext<AuthContextValue>({
   session: null,
   profile: null,
   loading: true,
+  profileMissing: false,
   signOut: async () => {},
 })
 
@@ -53,8 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileMissing, setProfileMissing] = useState(false)
 
-  // Fetch the user's profile row from the profiles table
+  // Fetch the user's profile row from the profiles table.
+  // The profile is what binds a login to ONE school, so it decides tenancy.
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
@@ -66,24 +75,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .single()
 
     if (error) {
+      // An auth user with no profile row can never resolve a school. Flag it so the
+      // UI can say so, rather than spinning forever.
       console.error('Failed to fetch profile:', error.message)
+      setProfileMissing(true)
       return null
     }
 
     if (data && data.is_active === false) {
       await supabase.auth.signOut()
-      alert('Your account has been deactivated. Please contact your administrator.')
+      router.push('/login?reason=deactivated')
       return null
     }
 
+    setProfileMissing(false)
     return data as unknown as Profile
-  }, [])
+  }, [router])
 
   // Sign out helper
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
     setSession(null)
     setProfile(null)
+    setProfileMissing(false)
     router.push('/login')
   }, [router])
 
@@ -150,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loading, session, pathname, router])
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ session, profile, loading, profileMissing, signOut }}>
       {children}
     </AuthContext.Provider>
   )
