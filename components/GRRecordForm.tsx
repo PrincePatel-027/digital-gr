@@ -312,14 +312,31 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     const isAutoFilled = autoFilledFields.has(field as keyof ParsedGRFields)
     const parsed = selectedParsedFields ? selectedParsedFields[field as keyof ParsedGRFields] : null
 
+    // Labels are stored as "ગુજરાતી / English" — split so Gujarati leads, the way
+    // the caption is printed on the page, with English as the quiet sub-caption.
+    const [guLabel, enLabel] = (() => {
+      const raw = FIELD_LABELS[field] || field
+      const idx = raw.indexOf(' / ')
+      return idx === -1 ? [raw, ''] : [raw.slice(0, idx), raw.slice(idx + 3)]
+    })()
+
+    // GR numbers and dates are ledger figures — set them in tabular mono.
+    const monoField = field === 'gr_number' || type === 'date'
+
     return (
       <div>
-        <label htmlFor={`field-${field}`} className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-soft mb-2">
-          {FIELD_LABELS[field]}
-          {isRequired && <span className="text-error">*</span>}
-          {isAutoFilled && parsed && (
-            <span className={`w-2 h-2 rounded-full ${confidenceClass(parsed.confidence)}`} title={`${parsed.confidence} confidence`} />
-          )}
+        <label htmlFor={`field-${field}`} className="block mb-1.5">
+          <span className="flex items-center gap-1.5">
+            <span className="label-gu">{guLabel}</span>
+            {isRequired && <span className="text-error text-sm leading-none">*</span>}
+            {isAutoFilled && parsed && (
+              <span
+                className={`w-2 h-2 rounded-full ${confidenceClass(parsed.confidence)}`}
+                title={`Read from the scan — ${parsed.confidence} confidence`}
+              />
+            )}
+          </span>
+          <span className="label-en">{enLabel}</span>
         </label>
         {type === 'textarea' ? (
           <textarea
@@ -328,7 +345,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
             onChange={(e) => updateField(field, e.target.value)}
             rows={opts?.rows || 3}
             placeholder={opts?.placeholder}
-            className={`neu-input resize-none ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-success/50' : ''}`}
+            className={`neu-input resize-none font-gujarati ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-accent/60' : ''}`}
           />
         ) : (
           <input
@@ -337,7 +354,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
             value={form[field]}
             onChange={(e) => updateField(field, e.target.value)}
             placeholder={opts?.placeholder}
-            className={`neu-input ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-success/50' : ''}`}
+            className={`neu-input ${monoField ? 'neu-input-mono' : 'font-gujarati'} ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-accent/60' : ''}`}
           />
         )}
         {hasError && <p className="text-xs text-error font-medium mt-1.5">{errors[field]}</p>}
@@ -351,17 +368,22 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       {mode === 'create' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Upload */}
-          <div className="neu-card p-5 sm:p-6 space-y-4">
-            <h2 className="text-xs font-semibold text-ink-soft">
-              <span className="text-accent">1</span> · Upload scan
-            </h2>
-            <ImageUploader onUpload={handleImageUpload} />
+          <div className="neu-card overflow-hidden">
+            <header className="px-5 py-3 border-b border-line-strong bg-surface-2">
+              <h2 className="font-gujarati-serif text-sm font-semibold">
+                <span className="text-accent">૧ · </span>પાનું સ્કેન કરો
+              </h2>
+              <p className="label-en">Photograph or upload the register page</p>
+            </header>
+            <div className="p-5">
+              <ImageUploader onUpload={handleImageUpload} />
+            </div>
           </div>
 
           {/* Scan Results */}
           <div className="neu-card p-5 sm:p-6 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-ink-soft">Scan results</h2>
+              <h2 className="font-gujarati-serif text-sm font-semibold">વાંચેલી વિગતો</h2>
               {ocrMode && (
                 <span className={`neu-badge ${ocrMode === 'mock' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
                   {ocrMode === 'gemini'
@@ -507,31 +529,32 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       {/* ═══════════════════════════════════════════════════════
           SECTION 1: મુખ્ય વિગતો — Primary Details (Left Page)
           ═══════════════════════════════════════════════════════ */}
-      <div className="neu-card p-5 sm:p-7 space-y-5">
-        <div className="flex items-start justify-between gap-4">
+      <div className="neu-card overflow-hidden">
+        <header className="px-5 sm:px-6 py-3 border-b border-line-strong bg-surface-2 flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-semibold text-ink">
-              {mode === 'create' && <span className="text-accent">2 · </span>}
-              પત્રક ૪ — મુખ્ય વિગતો / Primary details
+            <h2 className="font-gujarati-serif text-sm font-semibold">
+              {mode === 'create' && <span className="text-accent">૨ · </span>}
+              પત્રક ૪ — મુખ્ય વિગતો
             </h2>
-            <p className="text-[11px] text-ink-faint mt-0.5">રજિસ્ટરનું ડાબું પાનું / Left page of register</p>
+            <p className="label-en">Left page · personal details</p>
           </div>
           {autoFilledFields.size > 0 && (
-            <span className="neu-badge bg-success/10 text-success shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-success" />
-              {autoFilledFields.size} auto-filled
+            <span className="neu-badge bg-accent/10 text-accent shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              {autoFilledFields.size} filled from the scan
             </span>
           )}
-        </div>
+        </header>
 
+        <div className="p-5 sm:p-6 space-y-5">
         {saveError && (
-          <div className="neu-card-flat p-4" style={{ borderColor: '#dc2626' }}>
-            <p className="text-sm font-semibold text-error">Save failed</p>
+          <div className="neu-card-flat p-4" style={{ borderColor: '#a8322b' }}>
+            <p className="text-sm font-semibold text-error">Couldn&apos;t save this entry</p>
             <p className="text-xs text-ink-soft mt-1">{saveError}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
           {renderInput('gr_number', 'text', { placeholder: 'e.g. 1247' })}
           {renderInput('student_name', 'text', { placeholder: 'વિદ્યાર્થીનું પૂરું નામ' })}
           {renderInput('fathers_name', 'text', { placeholder: 'પિતાનું પૂરું નામ' })}
@@ -544,38 +567,41 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           {renderInput('birth_place', 'text', { placeholder: 'જન્મ સ્થળ / Place of birth' })}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
           {renderInput('address', 'textarea', { placeholder: 'ગામ / વતન / રહેઠાણ', rows: 2 })}
           {renderInput('previous_school', 'text', { placeholder: 'છેલ્લી શાળાનું નામ (optional)' })}
+        </div>
         </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════════
           SECTION 2: શૈક્ષણિક વિગતો — Academic Details (Right Page)
           ═══════════════════════════════════════════════════════ */}
-      <div className="neu-card p-5 sm:p-7 space-y-5">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">
-            {mode === 'create' && <span className="text-accent">3 · </span>}
-            પત્રક ૫ — શૈક્ષણિક વિગતો / Academic details
+      <div className="neu-card overflow-hidden">
+        <header className="px-5 sm:px-6 py-3 border-b border-line-strong bg-surface-2">
+          <h2 className="font-gujarati-serif text-sm font-semibold">
+            {mode === 'create' && <span className="text-accent">૩ · </span>}
+            પત્રક ૫ — શૈક્ષણિક વિગતો
           </h2>
-          <p className="text-[11px] text-ink-faint mt-0.5">રજિસ્ટરનું જમણું પાનું / Right page of register</p>
-        </div>
+          <p className="label-en">Right page · schooling &amp; leaving</p>
+        </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
-          {renderInput('admission_date', 'date')}
-          {renderInput('admission_standard', 'text', { placeholder: 'e.g. 1, 2, 3…' })}
-          {renderInput('leaving_date', 'date')}
-          {renderInput('leaving_standard', 'text', { placeholder: 'છોડતી વખતે ધોરણ' })}
-        </div>
+        <div className="p-5 sm:p-6 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            {renderInput('admission_date', 'date')}
+            {renderInput('admission_standard', 'text', { placeholder: 'e.g. 1, 2, 3…' })}
+            {renderInput('leaving_date', 'date')}
+            {renderInput('leaving_standard', 'text', { placeholder: 'છોડતી વખતે ધોરણ' })}
+          </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
-          {renderInput('progress_and_conduct', 'textarea', { placeholder: 'પ્રગતિ અને વર્તનની નોંધ', rows: 2 })}
-          {renderInput('leaving_reason', 'textarea', { placeholder: 'e.g. અન્ય ગામ જવાને લીધે, અભ્યાસ પૂર્ણ', rows: 2 })}
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            {renderInput('progress_and_conduct', 'textarea', { placeholder: 'પ્રગતિ અને વર્તનની નોંધ', rows: 2 })}
+            {renderInput('leaving_reason', 'textarea', { placeholder: 'e.g. અન્ય ગામ જવાને લીધે, અભ્યાસ પૂર્ણ', rows: 2 })}
+          </div>
 
-        <div className="grid grid-cols-1 gap-y-4">
-          {renderInput('remarks', 'textarea', { placeholder: 'રીમાર્ક્સ / શેરો / અન્ય નોંધ', rows: 3 })}
+          <div className="grid grid-cols-1 gap-y-4">
+            {renderInput('remarks', 'textarea', { placeholder: 'રીમાર્ક્સ / શેરો / અન્ય નોંધ', rows: 3 })}
+          </div>
         </div>
       </div>
 

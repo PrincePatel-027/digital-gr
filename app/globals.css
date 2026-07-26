@@ -1,52 +1,69 @@
 @import "tailwindcss";
 
 /* ══════════════════════════════════════════════════════════════
-   DIGITAL GR — "Modern Archive" design system
-   Warm archival paper · ink · a single deep-teal accent
-   Editorial serif display + clean grotesk + tabular mono
+   DIGITAL GR — "The bound ledger"
+
+   Every choice below is taken from the physical artifact this app
+   replaces: a Gujarat school General Register (જનરલ રજિસ્ટર,
+   પત્રક ૪ / પત્રક ૫).
+
+     · green-bar accounting paper  → row banding
+     · ruled column grid           → the signature device
+     · blue-black ink              → body text
+     · red ink                     → leaving entries & corrections
+     · violet rubber stamp         → official mark
+     · Gujarati serif headers      → printed column captions
    ══════════════════════════════════════════════════════════════ */
 
 @theme {
-  /* ── Surfaces (warm paper) ── */
-  --color-paper: #f0ede8;        /* app canvas */
-  --color-surface: #faf7f1;      /* raised cards (lifts off canvas) */
-  --color-surface-2: #e8e4de;    /* sunken fills / code blocks */
-  --color-surface-3: #e2ddd3;    /* deeper inset */
+  /* ── Paper ── */
+  --color-paper: #f4f6f1;         /* desk surface behind the ledger */
+  --color-surface: #ffffff;       /* the register page itself */
+  --color-band: #eaf0e6;          /* green-bar alternating row */
+  --color-surface-2: #eef1ea;     /* sunken fill / code blocks */
+  --color-surface-3: #e4e8de;     /* deeper inset */
 
-  /* ── Ink (warm near-black scale) ── */
-  --color-ink: #1a1a1a;
-  --color-ink-soft: #6b6b6b;
-  --color-ink-faint: #9a9590;
+  /* ── Rules & borders ── */
+  --color-line: #dbe0d6;          /* hairline */
+  --color-line-strong: #b4beb0;   /* column rule */
+  --color-rule: #ccd8cc;          /* feint horizontal rule */
 
-  /* ── Lines ── */
-  --color-line: #ded8cd;
-  --color-line-strong: #cbc4b6;
+  /* ── Ink ── */
+  --color-ink: #16233d;           /* blue-black register ink */
+  --color-ink-soft: #56617a;
+  --color-ink-faint: #8b94a4;
 
-  /* ── Accent (deep teal — used sparingly) ── */
-  --color-accent: #146b64;
-  --color-accent-hover: #0f524d;
+  /* ── Accents ── */
+  --color-accent: #0d5c4a;        /* ledger cloth green */
+  --color-accent-hover: #0a4839;
+  --color-red-ink: #a8322b;       /* leaving entries, struck records */
+  --color-stamp: #5d4a86;         /* rubber-stamp violet */
 
   /* ── Semantics ── */
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-error: #dc2626;
+  --color-success: #0d5c4a;
+  --color-warning: #91661c;
+  --color-error: #a8322b;
 
-  /* Tailwind background/foreground hooks */
-  --color-background: #f0ede8;
-  --color-foreground: #1a1a1a;
+  /* Tailwind hooks */
+  --color-background: #f4f6f1;
+  --color-foreground: #16233d;
 
-  /* ── Type ── */
-  --font-sans: var(--font-geist), var(--font-noto-gujarati), system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: var(--font-fraunces), var(--font-geist), Georgia, "Times New Roman", serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
-  --font-gujarati: var(--font-noto-gujarati), var(--font-geist), system-ui, sans-serif;
+  /* ── Type ──
+     Spectral: a bookish transitional serif for register headings.
+     IBM Plex Sans/Mono: institutional, clerical, tabular figures.
+     Noto Serif Gujarati: matches the printed Gujarati column captions. */
+  --font-sans: var(--font-plex), var(--font-noto-gujarati), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-spectral), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", monospace;
+  --font-gujarati: var(--font-noto-gujarati), var(--font-plex), system-ui, sans-serif;
+  --font-gujarati-serif: var(--font-noto-gujarati-serif), var(--font-noto-gujarati), Georgia, serif;
 
-  /* ── Elevation (warm-tinted, single light source from top) ── */
-  --shadow-xs: 0 1px 2px rgba(58, 46, 24, 0.05);
-  --shadow-sm: 0 1px 2px rgba(58, 46, 24, 0.05), 0 4px 10px -6px rgba(58, 46, 24, 0.12);
-  --shadow-md: 0 2px 4px rgba(58, 46, 24, 0.05), 0 14px 30px -18px rgba(58, 46, 24, 0.30);
-  --shadow-lg: 0 4px 8px rgba(58, 46, 24, 0.06), 0 30px 60px -28px rgba(58, 46, 24, 0.38);
-  --shadow-accent: 0 10px 26px -12px rgba(20, 107, 100, 0.55);
+  /* ── Elevation — a page resting on a desk, not a floating card ── */
+  --shadow-xs: 0 1px 1px rgba(22, 35, 61, 0.04);
+  --shadow-sm: 0 1px 2px rgba(22, 35, 61, 0.06), 0 3px 8px -5px rgba(22, 35, 61, 0.14);
+  --shadow-md: 0 2px 4px rgba(22, 35, 61, 0.06), 0 12px 26px -16px rgba(22, 35, 61, 0.28);
+  --shadow-lg: 0 4px 8px rgba(22, 35, 61, 0.07), 0 26px 52px -24px rgba(22, 35, 61, 0.34);
+  --shadow-accent: 0 8px 22px -10px rgba(13, 92, 74, 0.5);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -67,18 +84,16 @@ body {
   background-color: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  font-feature-settings: "cv01", "cv03", "ss01";
-  letter-spacing: -0.006em;
+  letter-spacing: -0.003em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Editorial serif for all page titles — set once, applied everywhere */
 h1 {
   font-family: var(--font-display);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.02;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.06;
 }
 
 h1, h2, h3, h4 {
@@ -90,141 +105,324 @@ p {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   color: var(--color-ink);
 }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 5px;
+  border-radius: 3px;
 }
 
-/* Gujarati script renders in a dedicated face for legibility */
+/* Gujarati gets a dedicated face; captions/headings use the serif cut. */
 :lang(gu),
 .font-gujarati {
   font-family: var(--font-gujarati);
 }
 
+.font-gujarati-serif {
+  font-family: var(--font-gujarati-serif);
+}
+
 /* ══════════════════════════════════════════════════════════════
-   PAPER GRAIN — subtle full-screen film for archival texture
+   PAPER TEXTURE — very light; the grid does the talking
    ══════════════════════════════════════════════════════════════ */
 .grain {
   position: fixed;
   inset: 0;
   z-index: 60;
   pointer-events: none;
-  opacity: 0.04;
+  opacity: 0.025;
   mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   CARDS
+   CARDS — a sheet of register paper. Square-ish corners: ledgers
+   are guillotined, not rounded.
    ══════════════════════════════════════════════════════════════ */
 .neu-card {
   background-color: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-radius: 18px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 4px;
   box-shadow: var(--shadow-sm);
 }
 
 .neu-card-sm {
   background-color: var(--color-surface);
   border: 1px solid var(--color-line);
-  border-radius: 12px;
+  border-radius: 3px;
   box-shadow: var(--shadow-xs);
 }
 
-/* Bordered variant (error/alert boxes accept an inline borderColor) */
 .neu-card-flat {
   background-color: var(--color-surface);
-  border-radius: 14px;
+  border-radius: 3px;
   border: 1px solid var(--color-ink);
 }
 
-/* Interactive card — soft lift on hover */
 .card-interactive {
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.25s ease, border-color 0.25s ease;
-  will-change: transform;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.18s ease, border-color 0.18s ease;
 }
 .card-interactive:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
-  border-color: var(--color-line-strong);
+  border-color: var(--color-accent);
 }
 .card-interactive:active {
-  transform: translateY(-1px) scale(0.995);
+  transform: translateY(0);
 }
 
 /* ══════════════════════════════════════════════════════════════
-   INPUTS
+   THE LEDGER GRID — the signature element.
+   Green-bar banding + vertical column rules, like the real page.
+   ══════════════════════════════════════════════════════════════ */
+.ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Printed column captions */
+.ledger thead th {
+  background-color: var(--color-surface-2);
+  border-bottom: 1.5px solid var(--color-line-strong);
+  border-right: 1px solid var(--color-line);
+  color: var(--color-ink);
+  font-family: var(--font-gujarati-serif);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  padding: 9px 10px;
+  text-align: left;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.ledger thead th:last-child { border-right: 0; }
+
+/* The English sub-caption under each Gujarati caption */
+.ledger thead th .en {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+  margin-top: 2px;
+}
+
+.ledger tbody td {
+  border-bottom: 1px solid var(--color-rule);
+  border-right: 1px solid var(--color-line);
+  padding: 10px;
+  vertical-align: middle;
+}
+.ledger tbody td:last-child { border-right: 0; }
+
+/* Green-bar: every other entry sits on a tinted band */
+.ledger tbody tr:nth-child(even) {
+  background-color: var(--color-band);
+}
+
+.ledger tbody tr {
+  transition: background-color 0.12s ease;
+}
+.ledger tbody tr:hover {
+  background-color: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+}
+
+/* A struck / left-the-school entry, annotated in red as on paper */
+.ledger tbody tr.entry-left td {
+  color: color-mix(in srgb, var(--color-red-ink) 78%, var(--color-ink));
+}
+
+/* Sticky captions for long registers */
+.ledger-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Serial column (અનુક્રમ) — narrow, faint, like the pre-printed numbers */
+.ledger .col-serial {
+  width: 44px;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   GR NUMBER — stamped into a box, the register's primary key
+   ══════════════════════════════════════════════════════════════ */
+.gr-stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 3px 8px;
+  border: 1.5px solid var(--color-ink);
+  border-radius: 2px;
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.gr-stamp-lg {
+  min-width: 96px;
+  padding: 7px 14px;
+  font-size: 20px;
+  border-width: 2px;
+}
+
+/* Red variant for a closed (left) entry */
+.gr-stamp-left {
+  border-color: var(--color-red-ink);
+  color: var(--color-red-ink);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   OFFICIAL STAMP — decorative double-ring seal, violet ink
+   ══════════════════════════════════════════════════════════════ */
+.stamp-seal {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border: 2px solid var(--color-stamp);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px var(--color-surface), inset 0 0 0 4.5px var(--color-stamp);
+  color: var(--color-stamp);
+  font-family: var(--font-gujarati-serif);
+  text-align: center;
+  line-height: 1.15;
+  opacity: 0.5;
+  transform: rotate(-7deg);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RULED PAPER — for empty states and note areas
+   ══════════════════════════════════════════════════════════════ */
+.ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 27px,
+    var(--color-rule) 27px,
+    var(--color-rule) 28px
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BILINGUAL FIELD LABELS — Gujarati leads, English clarifies
+   ══════════════════════════════════════════════════════════════ */
+.label-gu {
+  display: block;
+  font-family: var(--font-gujarati-serif);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink);
+  line-height: 1.3;
+}
+
+.label-en {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+  margin-top: 1px;
+}
+
+/* Value written into the register */
+.field-value {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   INPUTS — a ruled blank waiting to be filled in
    ══════════════════════════════════════════════════════════════ */
 .neu-input {
-  background-color: #fdfcf9;
-  border-radius: 11px;
+  background-color: var(--color-surface);
   border: 1px solid var(--color-line-strong);
+  border-radius: 3px;
   color: var(--color-ink);
   font-size: 16px; /* prevents iOS zoom */
-  padding: 12px 14px;
-  min-height: 48px;
+  padding: 11px 12px;
+  min-height: 46px;
   width: 100%;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 .neu-input::placeholder {
   color: var(--color-ink-faint);
 }
 .neu-input:hover:not(:focus) {
-  border-color: #b9b1a1;
+  border-color: #97a394;
 }
 .neu-input:focus {
   outline: none;
-  background-color: #fff;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 .neu-input-error {
   border-color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-error) 4%, var(--color-surface));
 }
 .neu-input-error:focus {
   border-color: var(--color-error);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 14%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 13%, transparent);
 }
 
 select.neu-input {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='none' viewBox='0 0 24 24' stroke='%236b6b6b' stroke-width='2.2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='none' viewBox='0 0 24 24' stroke='%2356617a' stroke-width='2.2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 40px;
+  background-position: right 10px center;
+  padding-right: 38px;
+}
+
+/* Monospace entry for GR numbers and dates */
+.neu-input-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
 /* ══════════════════════════════════════════════════════════════
-   BUTTONS — quiet, confident, sentence-case
+   BUTTONS
    ══════════════════════════════════════════════════════════════ */
 .neu-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  border-radius: 11px;
+  gap: 7px;
+  border-radius: 3px;
   font-family: var(--font-sans);
   font-weight: 600;
   font-size: 14px;
-  letter-spacing: -0.01em;
-  min-height: 48px;
-  padding: 12px 22px;
+  min-height: 46px;
+  padding: 11px 20px;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 0.18s ease, border-color 0.18s ease,
-    box-shadow 0.18s ease, opacity 0.18s ease;
+  transition: transform 0.14s ease, background-color 0.16s ease,
+    border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
   user-select: none;
   -webkit-user-select: none;
 }
 .neu-btn:active {
-  transform: translateY(1px) scale(0.985);
+  transform: translateY(1px);
 }
 .neu-btn:disabled {
   opacity: 0.45;
@@ -234,12 +432,11 @@ select.neu-input {
 
 .neu-btn-primary {
   background-color: var(--color-ink);
-  color: var(--color-paper);
+  color: #fff;
   box-shadow: var(--shadow-sm);
 }
 .neu-btn-primary:hover:not(:disabled) {
-  background-color: #000;
-  transform: translateY(-1px);
+  background-color: #0e1830;
   box-shadow: var(--shadow-md);
 }
 
@@ -250,18 +447,17 @@ select.neu-input {
 }
 .neu-btn-accent:hover:not(:disabled) {
   background-color: var(--color-accent-hover);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-accent);
 }
 
 .neu-btn-ghost {
-  background-color: transparent;
+  background-color: var(--color-surface);
   color: var(--color-ink);
   border: 1px solid var(--color-line-strong);
 }
 .neu-btn-ghost:hover:not(:disabled) {
   border-color: var(--color-ink);
-  background-color: color-mix(in srgb, var(--color-ink) 4%, transparent);
+  background-color: var(--color-surface-2);
 }
 
 .neu-btn-danger {
@@ -270,18 +466,40 @@ select.neu-input {
   box-shadow: var(--shadow-sm);
 }
 .neu-btn-danger:hover:not(:disabled) {
-  background-color: #b91c1c;
-  transform: translateY(-1px);
+  background-color: #8d2823;
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ACCENT BORDERS (refined from the old brutalist 2px)
+   FILTER CHIPS — ધોરણ / status selectors
    ══════════════════════════════════════════════════════════════ */
-.border-brutal {
-  border: 1px solid var(--color-ink);
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 3px;
+  background-color: var(--color-surface);
+  color: var(--color-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
 }
-.border-brutal-accent {
-  border: 1px solid var(--color-accent);
+.chip:hover {
+  border-color: var(--color-ink-soft);
+  color: var(--color-ink);
+}
+.chip-active {
+  background-color: var(--color-ink);
+  border-color: var(--color-ink);
+  color: #fff;
+}
+.chip-active:hover {
+  color: #fff;
+  border-color: var(--color-ink);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -291,37 +509,40 @@ select.neu-input {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: 3px;
+  padding: 3px 8px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1.2;
+  line-height: 1.3;
+}
+
+.border-brutal {
+  border: 1px solid var(--color-ink);
+}
+.border-brutal-accent {
+  border: 1px solid var(--color-accent);
 }
 
 /* ══════════════════════════════════════════════════════════════
-   GLASS NAV
+   MASTHEAD / NAV
    ══════════════════════════════════════════════════════════════ */
 .glass-nav {
-  background-color: color-mix(in srgb, var(--color-paper) 78%, transparent);
-  backdrop-filter: saturate(1.4) blur(14px);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px);
-  border-bottom: 1px solid var(--color-line);
+  background-color: color-mix(in srgb, var(--color-paper) 88%, transparent);
+  backdrop-filter: saturate(1.2) blur(12px);
+  -webkit-backdrop-filter: saturate(1.2) blur(12px);
+  border-bottom: 1.5px solid var(--color-line-strong);
 }
 
-/* ══════════════════════════════════════════════════════════════
-   BOTTOM TAB BAR (mobile)
-   ══════════════════════════════════════════════════════════════ */
 .bottom-tabs {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   z-index: 50;
-  background-color: color-mix(in srgb, var(--color-paper) 85%, transparent);
-  backdrop-filter: saturate(1.4) blur(14px);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px);
-  border-top: 1px solid var(--color-line);
+  background-color: color-mix(in srgb, var(--color-paper) 92%, transparent);
+  backdrop-filter: saturate(1.2) blur(12px);
+  -webkit-backdrop-filter: saturate(1.2) blur(12px);
+  border-top: 1.5px solid var(--color-line-strong);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -329,29 +550,29 @@ select.neu-input {
    SCROLLBAR
    ══════════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-surface-2);
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-line-strong);
-  border-radius: 999px;
-  border: 2px solid var(--color-paper);
+  border: 2px solid var(--color-surface-2);
+  border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #b0aca4;
+  background: #9aa596;
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MOBILE RECORD CARDS toggle
+   RESPONSIVE: ledger grid on desktop, entry cards on mobile
    ══════════════════════════════════════════════════════════════ */
-@media (max-width: 639px) {
+@media (max-width: 767px) {
   .record-table-container { display: none; }
   .record-cards-container { display: flex; }
 }
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .record-table-container { display: block; }
   .record-cards-container { display: none; }
 }
@@ -362,14 +583,22 @@ select.neu-input {
 .text-mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.01em;
 }
 
 .font-display {
   font-family: var(--font-display);
 }
 
-/* Skip link for keyboard users */
+/* Small caps eyebrow used above section titles */
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
 .skip-link {
   position: fixed;
   top: 12px;
@@ -377,9 +606,9 @@ select.neu-input {
   z-index: 100;
   transform: translateY(-160%);
   background: var(--color-ink);
-  color: var(--color-paper);
+  color: #fff;
   padding: 10px 16px;
-  border-radius: 10px;
+  border-radius: 3px;
   font-size: 13px;
   font-weight: 600;
   transition: transform 0.2s ease;
@@ -388,19 +617,18 @@ select.neu-input {
   transform: translateY(0);
 }
 
-/* Safe area padding for mobile bottom nav */
 .pb-safe {
   padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
 }
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .pb-safe { padding-bottom: 0; }
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MOTION — staggered entry, spring-ish easing
+   MOTION — restrained; this is a working document
    ══════════════════════════════════════════════════════════════ */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes fade-in {
@@ -408,28 +636,27 @@ select.neu-input {
   to   { opacity: 1; }
 }
 @keyframes scale-in {
-  from { opacity: 0; transform: scale(0.96); }
+  from { opacity: 0; transform: scale(0.98); }
   to   { opacity: 1; transform: scale(1); }
 }
 
 .animate-fade-up {
   opacity: 0;
-  animation: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 .animate-fade-in {
   opacity: 0;
-  animation: fade-in 0.8s ease forwards;
+  animation: fade-in 0.5s ease forwards;
 }
 .animate-scale-in {
   opacity: 0;
-  animation: scale-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: scale-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-/* Stagger utility: set --i on children in a flow */
 .stagger > * {
   opacity: 0;
-  animation: fade-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  animation-delay: calc(var(--i, 0) * 80ms);
+  animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 55ms);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -449,3 +676,62 @@ select.neu-input {
     transform: none !important;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   PRINT — schools still need paper. Print the register, not the app.
+   ══════════════════════════════════════════════════════════════ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  .glass-nav,
+  .bottom-tabs,
+  .grain,
+  .skip-link,
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .neu-card {
+    border-color: #666 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  /* Keep the grid legible in grayscale */
+  .ledger thead th {
+    background: #eee !important;
+    border-color: #666 !important;
+  }
+  .ledger tbody td {
+    border-color: #999 !important;
+  }
+  .ledger tbody tr:nth-child(even) {
+    background: #f4f4f4 !important;
+  }
+  .ledger tbody tr { break-inside: avoid; }
+
+  .gr-stamp {
+    border-color: #000 !important;
+    color: #000 !important;
+  }
+
+  .stamp-seal {
+    opacity: 0.7 !important;
+  }
+
+  /* Repeat column captions on every printed page */
+  thead { display: table-header-group; }
+
+  a { text-decoration: none !important; color: #000 !important; }
+
+  .print-only { display: block !important; }
+}
+
+.print-only { display: none; }

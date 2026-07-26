@@ -54,23 +54,29 @@ export default function LoginPage() {
   return (
     <main className="min-h-dvh grid lg:grid-cols-2">
       {/* ── Brand panel (desktop) ─────────────────────────── */}
-      <aside className="hidden lg:flex flex-col justify-between bg-surface border-r border-line p-12 xl:p-16">
+      <aside className="hidden lg:flex flex-col justify-between bg-surface border-r border-line-strong p-12 xl:p-16 relative">
         <button
           onClick={() => router.push('/')}
-          className="font-display text-2xl tracking-tight self-start hover:text-accent transition-colors"
+          className="text-left self-start hover:text-accent transition-colors"
         >
-          Digital GR
+          <span className="block font-gujarati-serif text-lg font-semibold leading-none">જનરલ રજિસ્ટર</span>
+          <span className="eyebrow block mt-1.5">Digital GR</span>
         </button>
 
         <div>
-          <h1 className="text-[clamp(2.5rem,4vw,3.5rem)] leading-[1.02] mb-6">
-            Welcome back to
+          <p className="eyebrow mb-4">પત્રક ૪ / પત્રક ૫</p>
+          <h1 className="font-gujarati-serif text-[clamp(2rem,3.4vw,2.9rem)] leading-tight mb-5">
+            શાળાનું જનરલ રજિસ્ટર,
             <br />
-            the <span className="italic text-accent">archive</span>.
+            <span className="text-accent">ડિજિટલ સ્વરૂપે.</span>
           </h1>
-          <p className="font-gujarati text-lg text-ink-soft max-w-[36ch] leading-relaxed">
-            શાળાના દરેક રેકોર્ડ સુરક્ષિત, વ્યવસ્થિત અને એક ક્લિકમાં શોધવા યોગ્ય.
+          <p className="text-base text-ink-soft max-w-[42ch] leading-relaxed">
+            Every student entry from the bound register — searchable in seconds,
+            and readable a lifetime from now.
           </p>
+
+          {/* A few ruled lines: the page waiting to be filled */}
+          <div className="ruled h-24 mt-9 border-t border-line-strong max-w-sm" aria-hidden="true" />
         </div>
 
         <p className="text-xs text-ink-faint">
@@ -84,9 +90,10 @@ export default function LoginPage() {
           {/* Mobile brand */}
           <button
             onClick={() => router.push('/')}
-            className="lg:hidden font-display text-3xl tracking-tight block mb-10 hover:text-accent transition-colors"
+            className="lg:hidden text-left block mb-9 hover:text-accent transition-colors"
           >
-            Digital GR
+            <span className="block font-gujarati-serif text-2xl font-semibold leading-none">જનરલ રજિસ્ટર</span>
+            <span className="eyebrow block mt-2">Digital GR</span>
           </button>
 
           <div className="mb-8">

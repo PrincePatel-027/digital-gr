@@ -1,35 +1,52 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Geist, Geist_Mono, Noto_Sans_Gujarati } from "next/font/google";
+import {
+  Spectral,
+  IBM_Plex_Sans,
+  IBM_Plex_Mono,
+  Noto_Sans_Gujarati,
+  Noto_Serif_Gujarati,
+} from "next/font/google";
 import { AuthProvider } from "@/lib/auth-context";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/react";
 import "./globals.css";
 
-// Editorial serif for display headings — the archival, characterful voice
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+// Display: a bookish transitional serif, the voice of an official bound register.
+const spectral = Spectral({
+  variable: "--font-spectral",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   style: ["normal", "italic"],
   display: "swap",
 });
 
-// Clean grotesk for UI + body
-const geist = Geist({
-  variable: "--font-geist",
+// Body/UI: institutional and clerical rather than startup-neutral.
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
-// Tabular mono for GR numbers, dates and other ledger data
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Ledger figures: GR numbers, dates, counts — tabular by design.
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   display: "swap",
 });
 
-// Dedicated face so the Gujarati register labels render beautifully
+// Gujarati body text as written into the register.
 const notoGujarati = Noto_Sans_Gujarati({
   variable: "--font-noto-gujarati",
+  subsets: ["gujarati"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+// Gujarati serif for the printed column captions (પત્રક ૪ / પત્રક ૫ headers).
+const notoGujaratiSerif = Noto_Serif_Gujarati({
+  variable: "--font-noto-gujarati-serif",
   subsets: ["gujarati"],
   weight: ["400", "500", "600", "700"],
   display: "swap",
@@ -39,22 +56,22 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#f0ede8",
+  themeColor: "#f4f6f1",
 };
 
 export const metadata: Metadata = {
   title: {
-    default: "Digital GR — School register, digitized",
+    default: "Digital GR — જનરલ રજિસ્ટર",
     template: "%s · Digital GR",
   },
   description:
-    "Turn handwritten school General Registers into a searchable, secure archive. Scan a page, let OCR read the Gujarati and English, and keep every record safe.",
+    "The school General Register, digitized. Scan a register page, let the fields fill themselves, and keep every student entry searchable and safe.",
   applicationName: "Digital GR",
-  keywords: ["General Register", "school records", "OCR", "Gujarati", "digitization"],
+  keywords: ["General Register", "જનરલ રજિસ્ટર", "school records", "Gujarat", "OCR"],
   openGraph: {
-    title: "Digital GR — School register, digitized",
+    title: "Digital GR — જનરલ રજિસ્ટર",
     description:
-      "Scan register pages, auto-extract student details, and manage records securely.",
+      "Scan register pages, auto-fill student details, and manage records securely.",
     type: "website",
   },
 };
@@ -67,7 +84,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${geist.variable} ${geistMono.variable} ${notoGujarati.variable} h-full antialiased`}
+      // globals.css sets scroll-behavior: smooth; this tells Next to keep route
+      // transitions instant instead of animating the scroll on navigation.
+      data-scroll-behavior="smooth"
+      className={`${spectral.variable} ${plexSans.variable} ${plexMono.variable} ${notoGujarati.variable} ${notoGujaratiSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-paper text-ink font-sans">
         <a href="#main-content" className="skip-link">
@@ -77,7 +97,7 @@ export default function RootLayout({
           <div id="main-content">{children}</div>
         </AuthProvider>
 
-        {/* Archival paper grain — non-interactive film over the whole UI */}
+        {/* Paper tooth — kept very light so the ruled grid stays the focus */}
         <div className="grain" aria-hidden="true" />
 
         <SpeedInsights />
