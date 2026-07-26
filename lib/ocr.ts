@@ -169,10 +169,12 @@ export async function extractText(imageBuffer: Buffer): Promise<OcrResult> {
     // discard a page that succeeded.
     const settled = await Promise.allSettled(segments.map((s) => callOcrSpace(s.buf)))
 
-    const texts: string[] = []
+    // Keep each result paired with its page label — a failed segment must not shift
+    // the labels of the ones that succeeded.
+    const texts: Array<{ label: string; text: string }> = []
     const failures: string[] = []
     settled.forEach((res, i) => {
-      if (res.status === 'fulfilled') texts.push(res.value)
+      if (res.status === 'fulfilled') texts.push({ label: segments[i].label, text: res.value })
       else failures.push(`${segments[i].label}: ${res.reason instanceof Error ? res.reason.message : String(res.reason)}`)
     })
 
@@ -184,10 +186,21 @@ export async function extractText(imageBuffer: Buffer): Promise<OcrResult> {
       console.warn(`OCR: ${failures.length} of ${segments.length} page segment(s) failed — ${failures.join(' | ')}`)
     }
 
-    // Merge in reading order (left page then right), dropping empty/placeholder segments.
-    const merged = texts
-      .map((t) => t.trim())
-      .filter((t) => t && t !== '(No text detected in image)')
+    // Merge in reading order (left page then right), dropping empty/placeholder
+    // segments. Each segment keeps its page label: on a GR spread the left page
+    // holds admission columns and the right page holds leaving columns, so without
+    // the boundary a downstream consumer cannot tell an admission date from a
+    // leaving date.
+    const kept = texts
+      .map((s) => ({ label: s.label, text: s.text.trim() }))
+      .filter((s) => s.text && s.text !== '(No text detected in image)')
+
+    const merged = kept
+      .map((s) => {
+        if (s.label === 'left-page') return `===== LEFT PAGE (પત્રક ૪ — admission side) =====\n${s.text}`
+        if (s.label === 'right-page') return `===== RIGHT PAGE (પત્રક ૫ — leaving side) =====\n${s.text}`
+        return s.text
+      })
       .join('\n\n')
 
     return { text: merged || '(No text detected in image)', mode: 'real' }

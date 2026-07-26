@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -10,6 +10,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  // Read the redirect reason from the URL. Done via window.location rather than
+  // useSearchParams so this page needs no Suspense boundary when prerendered.
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get('reason')
+    if (reason === 'deactivated') {
+      setNotice('Your account has been deactivated. Please contact your school administrator.')
+    } else if (reason === 'no-school') {
+      setNotice('Your account is not linked to a school yet. Please contact your administrator.')
+    }
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -42,23 +54,29 @@ export default function LoginPage() {
   return (
     <main className="min-h-dvh grid lg:grid-cols-2">
       {/* ── Brand panel (desktop) ─────────────────────────── */}
-      <aside className="hidden lg:flex flex-col justify-between bg-surface border-r border-line p-12 xl:p-16">
+      <aside className="hidden lg:flex flex-col justify-between bg-surface border-r border-line-strong p-12 xl:p-16 relative">
         <button
           onClick={() => router.push('/')}
-          className="font-display text-2xl tracking-tight self-start hover:text-accent transition-colors"
+          className="text-left self-start hover:text-accent transition-colors"
         >
-          Digital GR
+          <span className="block font-gujarati-serif text-lg font-semibold leading-none">જનરલ રજિસ્ટર</span>
+          <span className="eyebrow block mt-1.5">Digital GR</span>
         </button>
 
         <div>
-          <h1 className="text-[clamp(2.5rem,4vw,3.5rem)] leading-[1.02] mb-6">
-            Welcome back to
+          <p className="eyebrow mb-4">પત્રક ૪ / પત્રક ૫</p>
+          <h1 className="font-gujarati-serif text-[clamp(2rem,3.4vw,2.9rem)] leading-tight mb-5">
+            શાળાનું જનરલ રજિસ્ટર,
             <br />
-            the <span className="italic text-accent">archive</span>.
+            <span className="text-accent">ડિજિટલ સ્વરૂપે.</span>
           </h1>
-          <p className="font-gujarati text-lg text-ink-soft max-w-[36ch] leading-relaxed">
-            શાળાના દરેક રેકોર્ડ સુરક્ષિત, વ્યવસ્થિત અને એક ક્લિકમાં શોધવા યોગ્ય.
+          <p className="text-base text-ink-soft max-w-[42ch] leading-relaxed">
+            Every student entry from the bound register — searchable in seconds,
+            and readable a lifetime from now.
           </p>
+
+          {/* A few ruled lines: the page waiting to be filled */}
+          <div className="ruled h-24 mt-9 border-t border-line-strong max-w-sm" aria-hidden="true" />
         </div>
 
         <p className="text-xs text-ink-faint">
@@ -72,17 +90,30 @@ export default function LoginPage() {
           {/* Mobile brand */}
           <button
             onClick={() => router.push('/')}
-            className="lg:hidden font-display text-3xl tracking-tight block mb-10 hover:text-accent transition-colors"
+            className="lg:hidden text-left block mb-9 hover:text-accent transition-colors"
           >
-            Digital GR
+            <span className="block font-gujarati-serif text-2xl font-semibold leading-none">જનરલ રજિસ્ટર</span>
+            <span className="eyebrow block mt-2">Digital GR</span>
           </button>
 
           <div className="mb-8">
             <h2 className="font-display text-3xl tracking-tight mb-2">Sign in</h2>
             <p className="text-sm text-ink-soft">
-              Enter your credentials to reach your dashboard.
+              Your school&apos;s register is private to your school. Sign in to reach it.
             </p>
           </div>
+
+          {notice && (
+            <div
+              role="status"
+              className="mb-6 flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning/[0.08] px-4 py-3"
+            >
+              <svg className="w-4 h-4 text-warning mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <p className="text-sm text-warning font-medium">{notice}</p>
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-5" noValidate>
             {error && (

@@ -76,9 +76,34 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { profile, loading, signOut } = useAuth()
+  const { profile, loading, profileMissing, signOut } = useAuth()
   const pathname = usePathname()
   const [showUserMenu, setShowUserMenu] = useState(false)
+
+  // Signed in, but the account has no profile row — so it belongs to no school and
+  // there is nothing to show. Explain it instead of spinning forever.
+  if (!loading && !profile && profileMissing) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-5">
+        <div className="neu-card p-8 max-w-md text-center">
+          <div className="w-12 h-12 rounded-2xl bg-warning/12 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-6 h-6 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          </div>
+          <h1 className="font-display text-2xl mb-3">Account not linked to a school</h1>
+          <p className="text-sm text-ink-soft leading-relaxed mb-6">
+            Your login works, but it isn&apos;t assigned to a school yet, so there
+            are no records to show. Ask your administrator to add your account to
+            your school.
+          </p>
+          <button onClick={signOut} className="neu-btn neu-btn-primary w-full">
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (loading || !profile) {
     return (
@@ -127,20 +152,21 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-dvh flex flex-col">
-      {/* ── Desktop Top Nav ─────────────────────────────────── */}
-      <header className="hidden sm:block sticky top-0 z-40 glass-nav">
-        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
-          <div className="flex items-center gap-9 h-full">
-            <Link href="/dashboard" className="flex flex-col justify-center">
-              <span className="font-display text-xl tracking-tight leading-none">Digital GR</span>
-              {profile?.schools?.name && (
-                <span className="text-[10px] font-semibold text-accent tracking-wide mt-1 truncate max-w-[200px]">
-                  {profile.schools.name}
-                </span>
-              )}
+      {/* ── Desktop Masthead ────────────────────────────────── */}
+      <header className="hidden md:block sticky top-0 z-40 glass-nav">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-[62px]">
+          <div className="flex items-stretch gap-8 h-full">
+            {/* The register this book belongs to */}
+            <Link href="/dashboard" className="flex flex-col justify-center border-r border-line-strong pr-8">
+              <span className="font-gujarati-serif text-[15px] font-semibold leading-none">
+                જનરલ રજિસ્ટર
+              </span>
+              <span className="text-[10px] font-semibold text-ink-faint tracking-[0.12em] uppercase mt-1.5 truncate max-w-[260px]">
+                {profile?.schools?.name || 'All schools'}
+              </span>
             </Link>
 
-            <nav className="flex items-center h-full gap-1">
+            <nav className="flex items-center h-full gap-0.5">
               {navItems.map((item) => {
                 const active = isActive(item.href)
                 return (
@@ -148,13 +174,14 @@ export default function DashboardLayout({
                     key={item.href}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
-                    className={`relative inline-flex items-center h-full px-3.5 text-sm transition-colors ${
+                    className={`relative inline-flex items-center gap-2 h-full px-4 text-sm transition-colors ${
                       active ? 'text-ink font-semibold' : 'text-ink-soft hover:text-ink font-medium'
                     }`}
                   >
+                    <span className={active ? 'text-accent' : 'text-ink-faint'}>{item.icon}</span>
                     {item.label}
                     {active && (
-                      <span className="absolute inset-x-3 bottom-0 h-[2px] bg-accent rounded-full" />
+                      <span className="absolute inset-x-2 bottom-0 h-[2.5px] bg-accent" />
                     )}
                   </Link>
                 )
@@ -165,12 +192,12 @@ export default function DashboardLayout({
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center gap-2.5 pl-1.5 pr-2 py-1.5 rounded-full hover:bg-ink/[0.05] transition-colors"
+              className="flex items-center gap-2.5 pl-1.5 pr-2 py-1.5 rounded-sm hover:bg-ink/[0.05] transition-colors"
             >
-              <span className="w-8 h-8 rounded-xl bg-accent flex items-center justify-center">
+              <span className="w-8 h-8 rounded-sm bg-ink flex items-center justify-center">
                 <span className="text-xs font-bold text-white">{initial}</span>
               </span>
-              <div className="text-left hidden md:block">
+              <div className="text-left hidden lg:block">
                 <p className="text-xs font-semibold leading-none">{profile.full_name}</p>
                 <p className="text-[10px] text-ink-faint mt-1">{ROLE_LABELS[profile.role]}</p>
               </div>
@@ -183,22 +210,22 @@ export default function DashboardLayout({
         </div>
       </header>
 
-      {/* ── Mobile Top Bar ──────────────────────────────────── */}
-      <header className="sm:hidden sticky top-0 z-40 glass-nav">
-        <div className="px-5 flex items-center justify-between py-2.5 min-h-[52px]">
-          <Link href="/dashboard" className="flex flex-col">
-            <span className="font-display text-xl tracking-tight leading-none">Digital GR</span>
-            {profile?.schools?.name && (
-              <span className="text-[9px] font-semibold text-accent tracking-wide mt-1 truncate max-w-[200px]">
-                {profile.schools.name}
-              </span>
-            )}
+      {/* ── Mobile Masthead ─────────────────────────────────── */}
+      <header className="md:hidden sticky top-0 z-40 glass-nav">
+        <div className="px-5 flex items-center justify-between py-2.5 min-h-[54px]">
+          <Link href="/dashboard" className="flex flex-col min-w-0">
+            <span className="font-gujarati-serif text-[15px] font-semibold leading-none">
+              જનરલ રજિસ્ટર
+            </span>
+            <span className="text-[9px] font-semibold text-ink-faint tracking-[0.12em] uppercase mt-1.5 truncate max-w-[210px]">
+              {profile?.schools?.name || 'All schools'}
+            </span>
           </Link>
 
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center"
+              className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center"
               aria-label="Account menu"
             >
               <span className="text-sm font-bold text-white">{initial}</span>
@@ -210,13 +237,13 @@ export default function DashboardLayout({
 
       {/* ── Page Content ────────────────────────────────────── */}
       <main id="main-content" tabIndex={-1} className="flex-1 pb-safe focus:outline-none">
-        <div className="max-w-6xl mx-auto px-5 sm:px-6 py-7 sm:py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-9">
           {children}
         </div>
       </main>
 
       {/* ── Mobile Bottom Tab Bar ───────────────────────────── */}
-      <nav className="bottom-tabs sm:hidden" aria-label="Primary">
+      <nav className="bottom-tabs md:hidden" aria-label="Primary">
         <div className="flex items-center justify-around px-2 pt-1.5 pb-1">
           {navItems.map((item) => {
             const active = isActive(item.href)
@@ -225,12 +252,12 @@ export default function DashboardLayout({
                 key={item.href}
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl min-w-[64px] transition-colors ${
+                className={`relative flex flex-col items-center gap-1 px-3 py-1.5 rounded-sm min-w-[64px] transition-colors ${
                   active ? 'text-accent' : 'text-ink-faint'
                 }`}
               >
                 {active && (
-                  <span className="absolute top-0 w-8 h-[3px] bg-accent rounded-full" />
+                  <span className="absolute top-0 w-9 h-[2.5px] bg-accent" />
                 )}
                 {item.icon}
                 <span className="text-[10px] font-semibold tracking-wide">{item.label}</span>

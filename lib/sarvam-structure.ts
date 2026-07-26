@@ -11,7 +11,7 @@
  */
 
 import type { ParsedGRFields } from './ocr-parser'
-import { toParsedRecords, extractStudentsArray, fetchWithRetry } from './extract-shared'
+import { toParsedRecords, extractStudentsArray, fetchWithRetry, buildStructurePrompt } from './extract-shared'
 
 const DEFAULT_MODEL = 'sarvam-30b'
 
@@ -26,20 +26,6 @@ export function isSarvamConfigured(): boolean {
   return !!process.env.SARVAM_API_KEY
 }
 
-function buildPrompt(ocrText: string): string {
-  return `The text below is raw OCR output from a scanned Gujarati school "General Register" (જનરલ રજિસ્ટર). It is noisy: scripts may be mixed (Gujarati/Devanagari), words fragmented, and columns jumbled. Reconstruct the student record(s).
-
-Return ONLY a JSON object of the form {"students": [ ... ]}. For each student include these string fields (use "" when absent — never invent data):
-gr_number, student_name, fathers_name, mothers_name, surname, religion, caste_category, date_of_birth (YYYY-MM-DD, register years are 1900s), dob_in_words, birth_place, address, previous_school, admission_date (YYYY-MM-DD), admission_standard, progress_and_conduct, leaving_date (YYYY-MM-DD), leaving_reason, leaving_standard, remarks.
-
-Convert Gujarati/Devanagari numerals to Western digits. Keep Gujarati words as written. Ignore column headers and the "નમુનો" (sample) row.
-
-OCR TEXT:
-"""
-${ocrText.slice(0, 6000)}
-"""`
-}
-
 export async function structureWithSarvam(ocrText: string): Promise<SarvamStructureResult> {
   const apiKey = process.env.SARVAM_API_KEY
   if (!apiKey) {
@@ -51,12 +37,18 @@ export async function structureWithSarvam(ocrText: string): Promise<SarvamStruct
   const model = process.env.SARVAM_MODEL || DEFAULT_MODEL
 
   try {
+    // sarvam-30b is a REASONING model: it spends tokens on `reasoning_content`
+    // before answering. Left at the default effort it exhausts max_tokens and
+    // returns finish_reason "length" with content: null (verified). Keeping the
+    // effort low and the budget generous is what makes it actually answer.
+    // Note: reasoning_effort "none" is rejected with HTTP 400 — "low" is the floor.
     const body = JSON.stringify({
       model,
-      messages: [{ role: 'user', content: buildPrompt(ocrText) }],
+      messages: [{ role: 'user', content: buildStructurePrompt(ocrText) }],
       response_format: { type: 'json_object' },
+      reasoning_effort: 'low',
       temperature: 0,
-      max_tokens: 8000,
+      max_tokens: 16000,
     })
 
     const res = await fetchWithRetry('https://api.sarvam.ai/v1/chat/completions', {
@@ -74,9 +66,13 @@ export async function structureWithSarvam(ocrText: string): Promise<SarvamStruct
     }
 
     const data = await res.json()
-    const text: string = data?.choices?.[0]?.message?.content || ''
+    const choice = data?.choices?.[0]
+    // Fall back to reasoning_content: if the budget still ran out mid-answer the
+    // JSON may only exist inside the reasoning trace.
+    const text: string = choice?.message?.content || choice?.message?.reasoning_content || ''
     if (!text) {
-      return { records: [], mode: 'sarvam', raw: JSON.stringify(data).slice(0, 300), error: 'Sarvam returned no content' }
+      const finish = choice?.finish_reason || 'unknown'
+      return { records: [], mode: 'sarvam', raw: JSON.stringify(data).slice(0, 300), error: `Sarvam returned no content (finish_reason: ${finish})` }
     }
 
     // Sarvam (a reasoning model) may wrap JSON in prose or ```json fences — pull the object out.

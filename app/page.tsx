@@ -3,6 +3,14 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
+import { toGujaratiDigits } from '@/lib/gujarati'
+
+// A few specimen rows, written the way a clerk writes them.
+const SPECIMEN = [
+  { gr: '5202', name: 'નંદનીબેન ઉપેન્દ્રભાઈ બારોટ', father: 'ઉપેન્દ્રભાઈ', std: '5', dob: '06-01-2016', left: false },
+  { gr: '5203', name: 'મીરાબેન રમેશભાઈ પ્રજાપતિ', father: 'રમેશભાઈ', std: '4', dob: '14-08-2016', left: false },
+  { gr: '5204', name: 'જયેશ દિનેશભાઈ ઠાકોર', father: 'દિનેશભાઈ', std: '7', dob: '02-03-2014', left: true },
+]
 
 export default function LandingPage() {
   const router = useRouter()
@@ -17,159 +25,145 @@ export default function LandingPage() {
 
   if (!mounted) return null
 
-  const year = new Date().getFullYear()
-
   return (
     <div className="min-h-dvh flex flex-col">
-      {/* ── Nav ─────────────────────────────────────────────── */}
+      {/* ── Masthead ────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 glass-nav">
         <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 h-16 flex items-center justify-between">
-          <span className="font-display text-2xl tracking-tight">Digital GR</span>
+          <div>
+            <span className="block font-gujarati-serif text-base font-semibold leading-none">જનરલ રજિસ્ટર</span>
+            <span className="eyebrow block mt-1">Digital GR</span>
+          </div>
           <button
             onClick={() => router.push('/login')}
-            className="neu-btn neu-btn-ghost min-h-[42px] px-5 text-sm"
+            className="neu-btn neu-btn-ghost min-h-[40px] px-5 text-sm"
           >
             Sign in
           </button>
         </div>
       </header>
 
-      {/* ── Hero ────────────────────────────────────────────── */}
       <main className="flex-1">
-        <section className="max-w-6xl mx-auto w-full px-5 sm:px-8 pt-14 pb-20 sm:pt-20 sm:pb-28 grid lg:grid-cols-[1.05fr_0.95fr] gap-14 lg:gap-10 items-center">
-          {/* Copy */}
-          <div>
-            <p
-              className="animate-fade-up inline-flex items-center gap-2 text-xs font-semibold text-ink-soft mb-6"
-              style={{ animationDelay: '40ms' }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-              For schools
-              <span className="text-ink-faint">·</span>
-              <span className="font-gujarati">પત્રક ૪ / ૫</span>
+        {/* ── Hero: the register itself ──────────────────────── */}
+        <section className="max-w-6xl mx-auto w-full px-5 sm:px-8 pt-12 pb-16 sm:pt-16 sm:pb-20">
+          <div className="max-w-3xl">
+            <p className="eyebrow mb-4 animate-fade-up">
+              પત્રક ૪ / પત્રક ૫ · Gujarat primary schools
             </p>
-
             <h1
-              className="animate-fade-up text-[clamp(2.7rem,7vw,4.8rem)] leading-[1.0] mb-6"
+              className="font-gujarati-serif text-[clamp(2.1rem,5.5vw,3.6rem)] leading-[1.15] mb-5 animate-fade-up"
+              style={{ animationDelay: '60ms' }}
+            >
+              શાળાનું જનરલ રજિસ્ટર,
+              <br />
+              <span className="text-accent">ડિજિટલ સ્વરૂપે.</span>
+            </h1>
+            <p
+              className="text-lg text-ink-soft max-w-[54ch] leading-relaxed mb-8 animate-fade-up"
               style={{ animationDelay: '120ms' }}
             >
-              The General Register,
-              <br />
-              <span className="italic text-accent">digitized.</span>
-            </h1>
-
-            <p
-              className="animate-fade-up text-lg text-ink-soft max-w-[52ch] leading-relaxed mb-9"
-              style={{ animationDelay: '200ms' }}
-            >
-              Photograph a register page. We read the Gujarati and English
-              handwriting, pull out each student&apos;s details, and keep them
-              searchable and safe, for decades.
+              Photograph a page of the bound register. Each student&apos;s details
+              are read from the handwriting and laid out exactly as the register
+              records them — then kept searchable, and private to your school.
             </p>
-
             <div
-              className="animate-fade-up flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
-              style={{ animationDelay: '280ms' }}
+              className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 animate-fade-up"
+              style={{ animationDelay: '180ms' }}
             >
-              <button
-                onClick={() => router.push('/login')}
-                className="neu-btn neu-btn-primary px-8"
-              >
-                Get started
+              <button onClick={() => router.push('/login')} className="neu-btn neu-btn-accent px-8">
+                Open your register
               </button>
               <a href="#how" className="neu-btn neu-btn-ghost px-8">
-                See how it works
+                How it works
               </a>
             </div>
           </div>
 
-          {/* Before → after visual */}
+          {/* The ledger — the thing itself, not an illustration of it */}
           <div
-            className="animate-scale-in relative mx-auto w-full max-w-md lg:max-w-none"
-            style={{ animationDelay: '360ms' }}
-            aria-hidden="true"
+            className="mt-12 sm:mt-16 neu-card overflow-hidden animate-fade-up"
+            style={{ animationDelay: '240ms' }}
           >
-            {/* Aged ledger page (the "before") */}
-            <div className="relative rotate-[-4deg] rounded-2xl bg-surface-2 border border-line-strong shadow-[var(--shadow-lg)] p-6 sm:p-7">
-              <div className="flex items-center justify-between mb-4">
-                <span className="font-gujarati text-sm text-ink-soft">શાળા સામાન્ય રજિસ્ટર</span>
-                <span className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest">Scan</span>
+            <div className="px-5 py-3 border-b border-line-strong bg-surface-2 flex items-center justify-between">
+              <div>
+                <p className="font-gujarati-serif text-sm font-semibold">રજિસ્ટર અનુક્રમણિકા</p>
+                <p className="label-en">Register index · specimen</p>
               </div>
-              {/* faux hand-written ruled lines */}
-              <div className="space-y-3">
-                {['ક્રમાંક ૧૨૪૭ — મીરા પ્રજાપતિ', 'જન્મ ૧૪/૦૮/૨૦૧૫ — ધો. ૫', 'પિતા: રમેશભાઈ પ્રજાપતિ'].map((line, i) => (
-                  <div key={i} className="border-b border-line-strong pb-2.5">
-                    <span className="font-gujarati text-[13px] text-ink/70">{line}</span>
-                  </div>
-                ))}
-                <div className="border-b border-line-strong pb-2.5 opacity-50">
-                  <span className="font-gujarati text-[13px] text-ink/60">ગામ: વડોદરા</span>
-                </div>
-              </div>
+              <span className="eyebrow hidden sm:block">શિક્ષણ સમિતિ</span>
             </div>
-
-            {/* Digitized record (the "after") */}
-            <div className="absolute -bottom-8 -right-2 sm:-right-6 w-[74%] rotate-[3deg] neu-card shadow-[var(--shadow-lg)] p-5">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-mono text-xs font-semibold bg-ink text-paper px-2.5 py-1 rounded-md">
-                  GR-1247
-                </span>
-                <span className="neu-badge bg-[color-mix(in_srgb,var(--color-success)_14%,transparent)] text-[color:var(--color-success)]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--color-success)]" />
-                  Extracted
-                </span>
-              </div>
-              <p className="font-semibold text-[15px] mb-3">Meera Prajapati</p>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
-                <div>
-                  <dt className="text-ink-faint mb-0.5">Date of birth</dt>
-                  <dd className="text-mono text-ink">14/08/2015</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint mb-0.5">Standard</dt>
-                  <dd className="text-mono text-ink">5</dd>
-                </div>
-                <div className="col-span-2">
-                  <dt className="text-ink-faint mb-0.5">Father</dt>
-                  <dd className="text-ink font-medium">Ramesh Prajapati</dd>
-                </div>
-              </dl>
+            <div className="overflow-x-auto">
+              <table className="ledger">
+                <thead>
+                  <tr>
+                    <th className="col-serial">#</th>
+                    <th>રજી. નં<span className="en">GR no</span></th>
+                    <th>પુરૂં નામ<span className="en">Full name</span></th>
+                    <th className="hidden sm:table-cell">પિતાનું નામ<span className="en">Father</span></th>
+                    <th>ધોરણ<span className="en">Std</span></th>
+                    <th className="hidden sm:table-cell">જન્મ તારીખ<span className="en">Date of birth</span></th>
+                    <th>સ્થિતિ<span className="en">Status</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {SPECIMEN.map((row, i) => (
+                    <tr key={row.gr} className={row.left ? 'entry-left' : ''}>
+                      <td className="col-serial">{toGujaratiDigits(i + 1)}</td>
+                      <td>
+                        <span className={`gr-stamp ${row.left ? 'gr-stamp-left' : ''}`}>{row.gr}</span>
+                      </td>
+                      <td className="font-gujarati font-semibold whitespace-nowrap">{row.name}</td>
+                      <td className="font-gujarati text-sm hidden sm:table-cell">{row.father}</td>
+                      <td className="font-gujarati text-sm">{toGujaratiDigits(row.std)}</td>
+                      <td className="text-mono text-xs hidden sm:table-cell">{row.dob}</td>
+                      <td className="font-gujarati text-xs font-semibold">
+                        {row.left ? (
+                          <span className="text-red-ink">છોડી ગયા</span>
+                        ) : (
+                          <span className="text-accent">ચાલુ</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
 
         {/* ── How it works ──────────────────────────────────── */}
-        <section id="how" className="border-t border-line scroll-mt-20">
-          <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 py-16 sm:py-24">
-            <h2 className="font-display text-3xl sm:text-4xl tracking-tight mb-3">
-              Three steps from paper to pixels
-            </h2>
-            <p className="text-ink-soft max-w-[48ch] mb-14">
-              No new hardware, no data entry marathons. Your existing registers are
-              all you need.
+        <section id="how" className="border-t border-line-strong bg-surface scroll-mt-20">
+          <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 py-14 sm:py-20">
+            <h2 className="font-gujarati-serif text-2xl sm:text-3xl mb-2">કેવી રીતે કામ કરે છે</h2>
+            <p className="text-ink-soft max-w-[52ch] mb-12">
+              No new hardware and no data-entry marathon. The register you already
+              keep is the only input.
             </p>
 
-            <ol className="grid md:grid-cols-3 gap-x-10 gap-y-12">
+            <ol className="grid md:grid-cols-3 gap-x-10 gap-y-10">
               {[
                 {
-                  n: '01',
-                  t: 'Scan or upload',
-                  d: 'Snap a photo of any register page, or upload an existing scan. Photos, PDFs, whatever you already have on file.',
+                  n: '૧',
+                  gu: 'પાનું સ્કેન કરો',
+                  t: 'Scan the page',
+                  d: 'Photograph any register page on a phone, or upload a scan you already have.',
                 },
                 {
-                  n: '02',
-                  t: 'OCR reads it',
-                  d: 'Handwriting in Gujarati and English is extracted into clean fields, with a confidence flag on every value so nothing slips through.',
+                  n: '૨',
+                  gu: 'વિગતો તપાસો',
+                  t: 'Check the details',
+                  d: 'The Gujarati handwriting is read into the register\'s own columns. Anything uncertain is flagged for you to confirm.',
                 },
                 {
-                  n: '03',
-                  t: 'Search & manage',
-                  d: 'Find any student by name, GR number or date in seconds. Role-based access keeps every record safe.',
+                  n: '૩',
+                  gu: 'શોધો અને સાચવો',
+                  t: 'Find and keep',
+                  d: 'Look up a student by GR number, name or standard in seconds. Only your school can open your register.',
                 },
               ].map((step) => (
-                <li key={step.n} className="border-t-2 border-ink pt-5">
-                  <span className="font-display text-4xl text-accent tabular-nums">{step.n}</span>
-                  <h3 className="text-lg font-semibold mt-3 mb-2">{step.t}</h3>
+                <li key={step.n} className="border-t-2 border-ink pt-4">
+                  <span className="font-gujarati-serif text-3xl text-accent">{step.n}</span>
+                  <h3 className="font-gujarati-serif text-lg font-semibold mt-2">{step.gu}</h3>
+                  <p className="label-en mb-2">{step.t}</p>
                   <p className="text-sm text-ink-soft leading-relaxed">{step.d}</p>
                 </li>
               ))}
@@ -177,31 +171,34 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Closing statement ─────────────────────────────── */}
-        <section className="border-t border-line bg-surface">
-          <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 py-16 sm:py-24 flex flex-col lg:flex-row lg:items-center justify-between gap-10">
+        {/* ── Close ─────────────────────────────────────────── */}
+        <section className="border-t border-line-strong">
+          <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 py-14 sm:py-20 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
             <div>
-              <p className="font-display text-3xl sm:text-4xl leading-tight tracking-tight max-w-[18ch]">
-                Every name in the register, <span className="italic text-accent">preserved</span>.
+              <p className="font-gujarati-serif text-2xl sm:text-3xl leading-snug max-w-[24ch]">
+                દરેક વિદ્યાર્થીની નોંધ, <span className="text-accent">કાયમ સુરક્ષિત</span>.
               </p>
-              <p className="font-gujarati text-ink-soft mt-4 text-lg">
-                દરેક વિદ્યાર્થીની વિગત સુરક્ષિત અને શોધવા યોગ્ય.
+              <p className="text-ink-soft mt-3">
+                Every entry preserved, long after the paper fades.
               </p>
             </div>
             <button
               onClick={() => router.push('/login')}
-              className="neu-btn neu-btn-primary px-9 self-start lg:self-auto"
+              className="neu-btn neu-btn-accent px-9 self-start lg:self-auto"
             >
-              Get started
+              Open your register
             </button>
           </div>
         </section>
       </main>
 
       {/* ── Footer ──────────────────────────────────────────── */}
-      <footer className="border-t border-line">
-        <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="font-display text-lg">Digital GR</span>
+      <footer className="border-t border-line-strong bg-surface">
+        <div className="max-w-6xl mx-auto w-full px-5 sm:px-8 py-7 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <span className="block font-gujarati-serif text-sm font-semibold">જનરલ રજિસ્ટર</span>
+            <span className="eyebrow">Digital GR</span>
+          </div>
           <div className="flex items-center gap-6 text-sm text-ink-soft">
             <a href="mailto:support@digitalgr.app" className="hover:text-ink transition-colors">
               Contact
@@ -210,7 +207,7 @@ export default function LandingPage() {
               Sign in
             </button>
           </div>
-          <p className="text-xs text-ink-faint">© {year} Digital GR</p>
+          <p className="text-xs text-ink-faint">© {new Date().getFullYear()} Digital GR</p>
         </div>
       </footer>
     </div>
