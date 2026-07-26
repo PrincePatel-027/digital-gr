@@ -12,7 +12,7 @@
 import sharp from 'sharp'
 import type { ParsedGRFields } from './ocr-parser'
 import {
-  EXTRACTION_PROMPT,
+  buildExtractionPrompt,
   toParsedRecords,
   extractStudentsArray,
   fetchWithRetry,
@@ -33,7 +33,10 @@ export function isMistralConfigured(): boolean {
   return !!process.env.MISTRAL_API_KEY
 }
 
-export async function extractGRRecordsMistral(imageBuffer: Buffer): Promise<MistralExtractResult> {
+export async function extractGRRecordsMistral(
+  imageBuffer: Buffer,
+  ocrText?: string
+): Promise<MistralExtractResult> {
   const apiKey = process.env.MISTRAL_API_KEY
   if (!apiKey) {
     return { records: [], mode: 'mistral', raw: '', error: 'MISTRAL_API_KEY not configured' }
@@ -50,7 +53,7 @@ export async function extractGRRecordsMistral(imageBuffer: Buffer): Promise<Mist
         {
           role: 'user',
           content: [
-            { type: 'text', text: EXTRACTION_PROMPT },
+            { type: 'text', text: buildExtractionPrompt(ocrText) },
             { type: 'image_url', image_url: dataUrl },
           ],
         },

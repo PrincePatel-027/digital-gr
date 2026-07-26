@@ -10,7 +10,8 @@ import sharp from 'sharp'
 import type { ParsedGRFields } from './ocr-parser'
 import {
   STRING_FIELDS,
-  EXTRACTION_PROMPT,
+  buildExtractionPrompt,
+  buildStructurePrompt,
   toParsedRecords,
   extractStudentsArray,
   fetchWithRetry,
@@ -44,7 +45,17 @@ const RESPONSE_SCHEMA = {
   required: ['students'],
 }
 
-export async function extractGRRecords(imageBuffer: Buffer): Promise<GeminiExtractResult> {
+/**
+ * Extract records from the register image.
+ *
+ * `ocrText` (optional) is a real OCR transcription of the same page. When given,
+ * the model is grounded in it — the single most effective guard against the model
+ * inventing student names.
+ */
+export async function extractGRRecords(
+  imageBuffer: Buffer,
+  ocrText?: string
+): Promise<GeminiExtractResult> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     return { records: [], mode: 'gemini', raw: '', error: 'GEMINI_API_KEY not configured' }
@@ -62,7 +73,7 @@ export async function extractGRRecords(imageBuffer: Buffer): Promise<GeminiExtra
         {
           parts: [
             { inline_data: { mime_type: 'image/jpeg', data: base64 } },
-            { text: EXTRACTION_PROMPT },
+            { text: buildExtractionPrompt(ocrText) },
           ],
         },
       ],
@@ -103,5 +114,61 @@ export async function extractGRRecords(imageBuffer: Buffer): Promise<GeminiExtra
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { records: [], mode: 'gemini', raw: '', error: `Gemini extraction failed: ${message}` }
+  }
+}
+
+/**
+ * Text-only structuring: turn an OCR transcription into structured records
+ * WITHOUT showing the model the image. Because every value must come from the
+ * transcription, this cannot invent handwriting it "thinks" it sees — it is the
+ * most faithful path whenever the OCR text is decent.
+ */
+export async function structureWithGemini(ocrText: string): Promise<GeminiExtractResult> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    return { records: [], mode: 'gemini', raw: '', error: 'GEMINI_API_KEY not configured' }
+  }
+  if (!ocrText || ocrText.trim().length < 10) {
+    return { records: [], mode: 'gemini', raw: '', error: 'No OCR text to structure' }
+  }
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+    const res = await fetchWithRetry(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: buildStructurePrompt(ocrText) }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: RESPONSE_SCHEMA,
+          temperature: 0,
+        },
+      }),
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      return { records: [], mode: 'gemini', raw: '', error: `Gemini text returned ${res.status}: ${errText.slice(0, 300)}` }
+    }
+
+    const data = await res.json()
+    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    if (!text) {
+      return { records: [], mode: 'gemini', raw: '', error: 'Gemini text returned no content' }
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return { records: [], mode: 'gemini', raw: text, error: 'Gemini text response was not valid JSON' }
+    }
+
+    return { records: toParsedRecords(extractStudentsArray(parsed)), mode: 'gemini', raw: text }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { records: [], mode: 'gemini', raw: '', error: `Gemini text structuring failed: ${message}` }
   }
 }
