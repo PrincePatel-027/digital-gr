@@ -18,8 +18,11 @@ export default function NewRecordPage() {
         </Link>
         <h1 className="text-3xl sm:text-4xl">New record</h1>
         <p className="text-sm text-ink-soft mt-2">
-          Upload a scanned page, then confirm the student details before saving.
+          Upload one page or use the guided seven-shot scanner, then confirm every extracted field before saving.
         </p>
+        <Link href="/dashboard/records/compare" className="text-xs font-semibold text-accent hover:underline mt-2 inline-block">
+          Compare OCR engines →
+        </Link>
       </div>
 
       <GRRecordForm mode="create" />

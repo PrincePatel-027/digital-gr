@@ -19,6 +19,57 @@ export const STRING_FIELDS: (keyof ParsedGRFields)[] = [
 ]
 
 /**
+ * Per-field descriptions, keyed off the SAME canonical field list above.
+ *
+ * These exist so a schema-based extractor (e.g. Sarvam Document AI's `Extract`,
+ * which requires a `description` on every schema field) can be generated from the
+ * one field contract instead of hand-maintaining a second list that drifts. The
+ * wording is the same register domain knowledge encoded in FIELD_SPEC / COLUMN_LAYOUT
+ * below, condensed to one line per field, so the schema and the free-text prompts
+ * stay consistent.
+ */
+export const FIELD_DESCRIPTIONS: Record<keyof ParsedGRFields, string> = {
+  gr_number:
+    'Register number ("રજીસ્ટર નંબર") — the left-most serial/register index of this row, in Western digits. It is NOT a UID / Aadhaar / phone number (those are 9+ digit strings).',
+  student_name:
+    'The student\'s OWN given name only, in Gujarati. The "પુરૂં નામ" column holds the full name as <given name> <father\'s name> <surname>; return only the first (given) part. Example: "નંદનીબેન ઉપેન્દ્રભાઈ બારોટ" → "નંદનીબેન".',
+  fathers_name:
+    'Father\'s given name — the MIDDLE part of the full name in the "પુરૂં નામ" column, or a value explicitly labelled "પિતા".',
+  mothers_name:
+    'Mother\'s name, only when explicitly labelled "માતા" / "માતાનું નામ".',
+  surname:
+    'Surname / અટક — the LAST part of the full name (e.g. બારોટ, પટેલ, ઠાકોર).',
+  religion:
+    'Religion, from the "જાત તથા પેટા જાત" column (e.g. હિન્દુ, મુસ્લિમ, ખ્રિસ્તી).',
+  caste_category:
+    'Caste / sub-caste, from the "જાત તથા પેટા જાત" column (e.g. બારોટ, પટેલ, રજપૂત).',
+  date_of_birth:
+    'Date of birth from "જન્મ તારીખ (ઇસવીસન પ્રમાણે)", output as YYYY-MM-DD. Register dates are written DAY-first (DD-MM-YYYY), so "06-01-2016" → "2016-01-06".',
+  dob_in_words:
+    'Date of birth written out in words, if present.',
+  birth_place:
+    'Birth place ("જન્મભૂમિ"). This column is often OCR-merged with the date; separate them (e.g. "ભુ-ડરોબ 06-01-2016" → birth_place "ભુ-ડરોબ").',
+  address:
+    'Village / residence (ગામ / રહેઠાણ / વા-).',
+  previous_school:
+    'Previous school & standard admitted from ("કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા"). If the pupil is new, use "નવો".',
+  admission_date:
+    'Date of admission to THIS school — the LEFT page column "નિશાળમાં દાખલ થવાની તારીખ", output YYYY-MM-DD. NEVER copy the date of birth here; if the admission column is blank, return "".',
+  admission_standard:
+    'Standard/class at admission (LEFT page), digits 1-12 only (e.g. "1", "5"). "ધો-5" / "ધોરણ-5" means "5".',
+  progress_and_conduct:
+    'Progress & conduct notes ("પ્રગતિ અને વર્તન" / "અભ્યાસ / વર્તણૂંક") — RIGHT page.',
+  leaving_date:
+    'Date the pupil left the school — the RIGHT page column "નિશાળ છોડવાની તારીખ", output YYYY-MM-DD. A date under "છોડવાની તારીખ" is NEVER the admission date.',
+  leaving_reason:
+    'Reason for leaving ("નિશાળ છોડવાનું કારણ") — RIGHT page.',
+  leaving_standard:
+    'Standard when leaving ("છોડયા ત્યારે ... ધોરણ") — RIGHT page, digits 1-12 only. It is NEVER the admission standard.',
+  remarks:
+    'Remarks / શેરો, including the leaving-certificate date & number. Put stray identifiers such as UID / Aadhaar / phone numbers here, not in name fields.',
+}
+
+/**
  * Field spec + register domain knowledge shared by every provider.
  *
  * The column semantics matter enormously for accuracy: in a Gujarati GR the

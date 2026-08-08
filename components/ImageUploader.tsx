@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context'
 interface ImageUploaderProps {
   onUpload: (path: string) => void
   onFileSelect?: (file: File) => void
+  onBusyChange?: (busy: boolean) => void
   schoolId?: string
   className?: string
   disabled?: boolean
@@ -15,6 +16,7 @@ interface ImageUploaderProps {
 export default function ImageUploader({
   onUpload,
   onFileSelect,
+  onBusyChange,
   schoolId: schoolIdProp,
   className = '',
   disabled = false,
@@ -51,6 +53,7 @@ export default function ImageUploader({
       }
 
       setUploading(true)
+      onBusyChange?.(true)
 
       try {
         const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
@@ -79,9 +82,10 @@ export default function ImageUploader({
         }
       } finally {
         setUploading(false)
+        onBusyChange?.(false)
       }
     },
-    [schoolId, onUpload, onFileSelect]
+    [schoolId, onUpload, onFileSelect, onBusyChange]
   )
 
   const handleReset = () => {
@@ -170,7 +174,7 @@ export default function ImageUploader({
             </span>
             <button
               onClick={handleReset}
-              disabled={uploading}
+              disabled={uploading || disabled}
               className="text-xs font-semibold text-accent hover:underline disabled:opacity-30"
             >
               Replace
