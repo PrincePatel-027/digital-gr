@@ -9,7 +9,6 @@
  * Key from https://console.mistral.ai/. Optional MISTRAL_MODEL overrides the model.
  */
 
-import sharp from 'sharp'
 import type { ParsedGRFields } from './ocr-parser'
 import {
   buildExtractionPrompt,
@@ -17,6 +16,7 @@ import {
   extractStudentsArray,
   fetchWithRetry,
 } from './extract-shared'
+import { preprocessForOcr } from './image-prep'
 
 // Mistral Small 3.2 is multimodal and cost-effective. Override with MISTRAL_MODEL
 // (e.g. mistral-medium-latest) for higher accuracy on difficult handwriting.
@@ -35,20 +35,21 @@ export function isMistralConfigured(): boolean {
 
 export async function extractGRRecordsMistral(
   imageBuffer: Buffer,
-  ocrText?: string
+  ocrText?: string,
+  model?: string
 ): Promise<MistralExtractResult> {
   const apiKey = process.env.MISTRAL_API_KEY
   if (!apiKey) {
     return { records: [], mode: 'mistral', raw: '', error: 'MISTRAL_API_KEY not configured' }
   }
-  const model = process.env.MISTRAL_MODEL || DEFAULT_MODEL
+  const chosenModel = model || process.env.MISTRAL_MODEL || DEFAULT_MODEL
 
   try {
-    const jpeg = await sharp(imageBuffer).rotate().jpeg({ quality: 92 }).toBuffer()
+    const jpeg = await preprocessForOcr(imageBuffer)
     const dataUrl = `data:image/jpeg;base64,${jpeg.toString('base64')}`
 
     const body = JSON.stringify({
-      model,
+      model: chosenModel,
       messages: [
         {
           role: 'user',

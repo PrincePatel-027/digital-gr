@@ -6,7 +6,6 @@
  * https://aistudio.google.com/apikey. Optional GEMINI_MODEL overrides the model.
  */
 
-import sharp from 'sharp'
 import type { ParsedGRFields } from './ocr-parser'
 import {
   STRING_FIELDS,
@@ -16,6 +15,7 @@ import {
   extractStudentsArray,
   fetchWithRetry,
 } from './extract-shared'
+import { preprocessForOcr } from './image-prep'
 
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 
@@ -54,20 +54,21 @@ const RESPONSE_SCHEMA = {
  */
 export async function extractGRRecords(
   imageBuffer: Buffer,
-  ocrText?: string
+  ocrText?: string,
+  model?: string
 ): Promise<GeminiExtractResult> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     return { records: [], mode: 'gemini', raw: '', error: 'GEMINI_API_KEY not configured' }
   }
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL
+  const chosenModel = model || process.env.GEMINI_MODEL || DEFAULT_MODEL
 
   try {
-    // Normalize to JPEG + auto-orient (handles PNG/WebP/EXIF rotation).
-    const jpeg = await sharp(imageBuffer).rotate().jpeg({ quality: 92 }).toBuffer()
+    // Clean up the phone photo (auto-orient, grayscale, contrast, upscale) before sending.
+    const jpeg = await preprocessForOcr(imageBuffer)
     const base64 = jpeg.toString('base64')
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${chosenModel}:generateContent?key=${apiKey}`
     const body = JSON.stringify({
       contents: [
         {
@@ -123,7 +124,7 @@ export async function extractGRRecords(
  * transcription, this cannot invent handwriting it "thinks" it sees — it is the
  * most faithful path whenever the OCR text is decent.
  */
-export async function structureWithGemini(ocrText: string): Promise<GeminiExtractResult> {
+export async function structureWithGemini(ocrText: string, model?: string): Promise<GeminiExtractResult> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     return { records: [], mode: 'gemini', raw: '', error: 'GEMINI_API_KEY not configured' }
@@ -131,10 +132,10 @@ export async function structureWithGemini(ocrText: string): Promise<GeminiExtrac
   if (!ocrText || ocrText.trim().length < 10) {
     return { records: [], mode: 'gemini', raw: '', error: 'No OCR text to structure' }
   }
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL
+  const chosenModel = model || process.env.GEMINI_MODEL || DEFAULT_MODEL
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${chosenModel}:generateContent?key=${apiKey}`
     const res = await fetchWithRetry(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

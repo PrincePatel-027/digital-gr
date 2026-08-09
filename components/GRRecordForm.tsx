@@ -1,11 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { parseGRTable, countParsedFields, type ParsedGRFields, type ParsedField } from '@/lib/ocr-parser'
+import type {
+  ApiErrorResponse,
+  GuidedScanResponse,
+  OcrMode,
+  OcrPipelineResponse,
+} from '@/lib/ocr-types'
 import ImageUploader from '@/components/ImageUploader'
+import GuidedRegisterScanner from '@/components/GuidedRegisterScanner'
 
 // ── Types ─────────────────────────────────────────────────────
 export interface GRRecordData {
@@ -111,7 +118,8 @@ function confidenceClass(confidence?: ParsedField['confidence']) {
 // ── Component ─────────────────────────────────────────────────
 export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const router = useRouter()
-  const { profile } = useAuth()
+  const { profile, session } = useAuth()
+  const ocrRequestIdRef = useRef(0)
 
   const [form, setForm] = useState<GRRecordData>({ ...EMPTY_FORM, ...initialData })
   const [errors, setErrors] = useState<Partial<Record<keyof GRRecordData, string>>>({})
@@ -120,8 +128,11 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
   const [ocrText, setOcrText] = useState<string>(initialData?.ocr_raw_text || '')
   const [ocrLoading, setOcrLoading] = useState(false)
-  const [ocrMode, setOcrMode] = useState<'real' | 'mock' | 'gemini' | 'mistral' | 'sarvam' | null>(null)
+  const [captureBusy, setCaptureBusy] = useState(false)
+  const [ocrMode, setOcrMode] = useState<OcrMode | null>(null)
   const [ocrError, setOcrError] = useState<string | null>(null)
+  const [captureMode, setCaptureMode] = useState<'single' | 'guided'>('single')
+  const [guidedScanWarnings, setGuidedScanWarnings] = useState<string[]>([])
 
   // Multi-record support
   const [parsedRecords, setParsedRecords] = useState<ParsedGRFields[]>([])
@@ -129,19 +140,20 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const [autoFilledFields, setAutoFilledFields] = useState<Set<keyof ParsedGRFields>>(new Set())
   const [showRawText, setShowRawText] = useState(false)
 
-  useEffect(() => {
-    if (initialData) {
-      setForm((prev) => ({ ...prev, ...initialData }))
-      if (initialData.ocr_raw_text) setOcrText(initialData.ocr_raw_text)
-    }
-  }, [initialData])
-
-  const applyParsedRecord = useCallback((parsed: ParsedGRFields) => {
+  const applyParsedRecord = useCallback((
+    parsed: ParsedGRFields,
+    preserve?: Pick<GRRecordData, 'image_url' | 'ocr_raw_text'>
+  ) => {
     const filledKeys = new Set<keyof ParsedGRFields>()
     const updates: Partial<GRRecordData> = {}
 
-    // Clear out previous auto-filled data before applying new selection
-    const resetForm = { ...EMPTY_FORM, image_url: form.image_url, ocr_raw_text: form.ocr_raw_text }
+    // Clear previous auto-filled data, but never drop the source image/raw text while
+    // an async OCR request is completing from an older render.
+    const resetForm = {
+      ...EMPTY_FORM,
+      image_url: preserve?.image_url ?? form.image_url,
+      ocr_raw_text: preserve?.ocr_raw_text ?? form.ocr_raw_text,
+    }
 
     for (const field of PARSEABLE_FIELDS) {
       const parsedField = parsed[field]
@@ -175,76 +187,114 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     return Object.keys(newErrors).length === 0
   }
 
-  async function handleImageUpload(storagePath: string) {
-    updateField('image_url', storagePath)
-    setOcrLoading(true)
+  function beginOcrSource(storagePath = ''): number {
+    const requestId = ++ocrRequestIdRef.current
+    setForm({ ...EMPTY_FORM, image_url: storagePath })
+    setErrors({})
+    setSaveError(null)
+    setOcrText('')
+    setOcrMode(null)
     setOcrError(null)
+    setGuidedScanWarnings([])
     setParsedRecords([])
     setSelectedRecordIndex(null)
     setAutoFilledFields(new Set())
+    setShowRawText(false)
+    return requestId
+  }
+
+  function applyOcrResult(result: OcrPipelineResponse, storagePath: string) {
+    const rawText = result.text?.trim() || ''
+    const hasUsableText = rawText.length > 0 && rawText !== '(No text detected in image)'
+    const preserved = {
+      image_url: storagePath,
+      ocr_raw_text: hasUsableText ? rawText : '',
+    }
+
+    setForm((previous) => ({ ...previous, ...preserved }))
+    setOcrText(rawText)
+    setOcrMode(result.mode)
+
+    if ('records' in result && Array.isArray(result.records) && result.records.length > 0) {
+      const records = result.records
+      setParsedRecords(records)
+      if (records.length === 1) {
+        applyParsedRecord(records[0], preserved)
+        setSelectedRecordIndex(0)
+      }
+      return
+    }
+
+    if (hasUsableText) {
+      const tableRecords = parseGRTable(rawText)
+      setParsedRecords(tableRecords)
+      if (tableRecords.length === 1) {
+        applyParsedRecord(tableRecords[0], preserved)
+        setSelectedRecordIndex(0)
+      }
+      return
+    }
+
+    setOcrError(result.error || 'Couldn\'t read the register page automatically. Please fill in the fields manually.')
+  }
+
+  async function handleImageUpload(storagePath: string) {
+    const requestId = beginOcrSource(storagePath)
+    setOcrLoading(true)
 
     try {
+      if (!session?.access_token) throw new Error('Your session has expired. Sign in again before extracting text.')
+
       const { data: fileData, error: dlError } = await supabase.storage.from('gr-images').download(storagePath)
       if (dlError || !fileData) {
-        setOcrError('Couldn\'t read the uploaded image for text extraction.')
-        setOcrLoading(false)
-        return
+        throw new Error('Couldn\'t read the uploaded image for text extraction.')
       }
 
       const formData = new FormData()
       formData.append('image', fileData, 'scan.jpg')
-      const res = await fetch('/api/ocr-test', { method: 'POST', body: formData })
-      const result = await res.json()
-
-      const hasUsableText =
-        typeof result.text === 'string' &&
-        result.text.trim().length > 0 &&
-        result.text !== '(No text detected in image)'
-
-      if (res.status === 429) {
-        setOcrError('Extraction service is busy right now. Fill in the fields manually, or try again in a moment.')
-      } else if (Array.isArray(result.records) && result.records.length > 0) {
-        // Structured records straight from the vision model — no text parsing needed.
-        setOcrText(result.text || '')
-        setOcrMode(result.mode)
-        if (result.text) updateField('ocr_raw_text', result.text)
-
-        const records = result.records as ParsedGRFields[]
-        setParsedRecords(records)
-        if (records.length === 1) {
-          applyParsedRecord(records[0])
-          setSelectedRecordIndex(0)
-        }
-      } else if (hasUsableText) {
-        // No structured records, but text DID come back (e.g. Gemini was busy and
-        // we fell back to raw OCR). Show it and run the heuristic parser so the
-        // user can still auto-fill or copy from it — never discard usable text.
-        setOcrText(result.text)
-        setOcrMode(result.mode)
-        updateField('ocr_raw_text', result.text)
-
-        const tableRecords = parseGRTable(result.text)
-        setParsedRecords(tableRecords)
-
-        if (tableRecords.length === 1) {
-          applyParsedRecord(tableRecords[0])
-          setSelectedRecordIndex(0)
-        }
-      } else {
-        // Nothing usable came back from either the vision model or OCR fallback.
-        setOcrError('Couldn\'t read the register page automatically. Please fill in the fields manually.')
+      const response = await fetch('/api/ocr-test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: formData,
+      })
+      const result = await response.json() as OcrPipelineResponse | ApiErrorResponse
+      if (!response.ok) {
+        throw new Error(('error' in result && result.error) || 'Text extraction failed.')
       }
-    } catch (err) {
-      console.error('OCR error:', err)
-      setOcrError('Text extraction failed. Fill in fields manually.')
+      if (requestId !== ocrRequestIdRef.current) return
+
+      applyOcrResult(result as OcrPipelineResponse, storagePath)
+    } catch (error) {
+      if (requestId !== ocrRequestIdRef.current) return
+      console.error('OCR error:', error)
+      setOcrError(error instanceof Error ? error.message : 'Text extraction failed. Fill in fields manually.')
     } finally {
-      setOcrLoading(false)
+      if (requestId === ocrRequestIdRef.current) setOcrLoading(false)
     }
+  }
+
+  function handleGuidedProcessingChange(processing: boolean) {
+    if (processing) beginOcrSource()
+    setCaptureBusy(processing)
+  }
+
+  function handleGuidedScanComplete(result: GuidedScanResponse) {
+    setGuidedScanWarnings(result.scan.warnings)
+    applyOcrResult(result, result.scan.storagePath)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaveError(null)
+    if (ocrLoading || captureBusy) {
+      setSaveError('Wait for the current scan to finish before saving.')
+      return
+    }
+    if (parsedRecords.length > 1 && selectedRecordIndex === null) {
+      setSaveError('Select the student record that belongs to this entry before saving.')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
     if (!validate()) {
       // Scroll to top to see errors easily
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -301,6 +351,8 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   // ── Render helpers ──────────────────────────────────────
   const selectedParsedFields = selectedRecordIndex !== null ? parsedRecords[selectedRecordIndex] : null
   const parsedCount = selectedParsedFields ? countParsedFields(selectedParsedFields) : { total: 0 }
+  const scanBusy = ocrLoading || captureBusy
+  const needsRecordSelection = parsedRecords.length > 1 && selectedRecordIndex === null
 
   function renderInput(
     field: keyof GRRecordData,
@@ -375,8 +427,41 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
               </h2>
               <p className="label-en">Photograph or upload the register page</p>
             </header>
-            <div className="p-5">
-              <ImageUploader onUpload={handleImageUpload} />
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Scan method">
+                <button
+                  type="button"
+                  onClick={() => setCaptureMode('single')}
+                  disabled={scanBusy || saving}
+                  aria-pressed={captureMode === 'single'}
+                  className={`neu-btn text-xs ${captureMode === 'single' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+                >
+                  Single photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCaptureMode('guided')}
+                  disabled={scanBusy || saving}
+                  aria-pressed={captureMode === 'guided'}
+                  className={`neu-btn text-xs ${captureMode === 'guided' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+                >
+                  Guided 7-shot scan
+                </button>
+              </div>
+
+              {captureMode === 'single' ? (
+                <ImageUploader
+                  onUpload={handleImageUpload}
+                  onBusyChange={setCaptureBusy}
+                  disabled={scanBusy || saving}
+                />
+              ) : (
+                <GuidedRegisterScanner
+                  onComplete={handleGuidedScanComplete}
+                  onProcessingChange={handleGuidedProcessingChange}
+                  disabled={saving || scanBusy}
+                />
+              )}
             </div>
           </div>
 
@@ -388,18 +473,29 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                 <span className={`neu-badge ${ocrMode === 'mock' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
                   {ocrMode === 'gemini'
                     ? 'Gemini vision'
-                    : ocrMode === 'mistral'
-                      ? 'Mistral vision'
-                      : ocrMode === 'sarvam'
-                        ? 'Sarvam AI'
-                        : ocrMode === 'mock'
-                          ? 'Sample data'
-                          : 'OCR text'}
+                    : ocrMode === 'openai'
+                      ? 'OpenAI vision'
+                      : ocrMode === 'mistral'
+                        ? 'Mistral vision'
+                        : ocrMode === 'sarvam'
+                          ? 'Sarvam AI'
+                          : ocrMode === 'mock'
+                            ? 'Sample data'
+                            : 'OCR text'}
                 </span>
               )}
             </div>
 
-            {ocrLoading ? (
+            {guidedScanWarnings.length > 0 && (
+              <div className="rounded-xl bg-warning/[0.08] border border-warning/25 px-4 py-3">
+                <p className="text-xs font-semibold text-warning">Some scan blocks may need extra review</p>
+                <ul className="text-[11px] text-warning/80 mt-1 space-y-0.5">
+                  {guidedScanWarnings.slice(0, 4).map((warning) => <li key={warning}>• {warning}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {scanBusy ? (
               <div className="flex flex-col items-center gap-3 py-10 text-ink-soft">
                 <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -618,10 +714,18 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           <button
             id="form-submit"
             type="submit"
-            disabled={saving}
+            disabled={saving || scanBusy || needsRecordSelection}
             className="neu-btn neu-btn-primary w-full sm:w-auto"
           >
-            {saving ? 'Saving…' : mode === 'create' ? 'Save record' : 'Update record'}
+            {saving
+              ? 'Saving…'
+              : scanBusy
+                ? 'Wait for scan…'
+                : needsRecordSelection
+                  ? 'Select a student first'
+                  : mode === 'create'
+                    ? 'Save record'
+                    : 'Update record'}
           </button>
         </div>
       </div>

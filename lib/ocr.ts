@@ -1,11 +1,17 @@
 /**
- * OCR Module — OCR.space API integration (FREE, no billing required)
+ * OCR Module — raw-text anchor for the extraction chain.
  *
- * OCR.space free tier: 25,000 requests/month
- * Supports: English, Hindi, Gujarati, and 20+ languages
+ * PRIMARY: Sarvam Document AI (Vision 1.5) via `digitiseWithSarvam` — purpose-trained on
+ * Indic scripts including handwritten Gujarati, so it transcribes GR pages far more
+ * accurately than a generic engine.
+ * FALLBACK: OCR.space (free, 25,000 req/month; English/Hindi/Gujarati + 20 more) — used
+ * per-segment whenever Sarvam is unconfigured, fails, or times out. Kept because it is
+ * free and reliable for the Latin/numeral pass (GR numbers, dates).
  */
 
 import sharp from 'sharp'
+import { digitiseWithSarvam, isSarvamDocAiConfigured } from './sarvam-doc-ai'
+import { preprocessForOcr } from './image-prep'
 
 // ── Types ─────────────────────────────────────────────────────
 export interface OcrResult {
@@ -159,15 +165,35 @@ async function splitIntoPages(imageBuffer: Buffer): Promise<PageSegment[]> {
   return [{ label: 'full', buf: imageBuffer }]
 }
 
+// ── Transcribe one page segment ───────────────────────────────
+// Sarvam Document AI (Gujarati-specialised) first; if it is unconfigured, errors, times
+// out, or returns nothing, fall back to the OCR.space dual-pass. A Sarvam failure here is
+// never fatal — the segment simply degrades to OCR.space, and if that also fails the
+// segment is dropped by the allSettled handling in extractText.
+async function transcribeSegment(seg: PageSegment): Promise<string> {
+  if (isSarvamDocAiConfigured()) {
+    try {
+      const text = await digitiseWithSarvam(seg.buf, `${seg.label}.jpg`)
+      if (text && text.trim() && text.trim() !== '(No text detected in image)') return text
+      console.warn(`Sarvam digitise returned no text for ${seg.label}; falling back to OCR.space.`)
+    } catch (err) {
+      console.warn(`Sarvam digitise failed for ${seg.label} — falling back to OCR.space: ${describeOcrFailure(err)}`)
+    }
+  }
+  // OCR.space gets the cleaned image (Sarvam preprocesses inside its own upload step,
+  // so segments are passed to it raw above — this keeps preprocessing applied once).
+  return callOcrSpace(await preprocessForOcr(seg.buf))
+}
+
 // ── Main export ───────────────────────────────────────────────
 export async function extractText(imageBuffer: Buffer): Promise<OcrResult> {
   try {
     const segments = await splitIntoPages(imageBuffer)
 
-    // OCR each page segment independently (each runs its own concurrent dual-pass).
+    // Transcribe each page segment independently (Sarvam Doc AI, else OCR.space dual-pass).
     // allSettled so one page failing (still too dense, rate limit, etc.) doesn't
     // discard a page that succeeded.
-    const settled = await Promise.allSettled(segments.map((s) => callOcrSpace(s.buf)))
+    const settled = await Promise.allSettled(segments.map((s) => transcribeSegment(s)))
 
     // Keep each result paired with its page label — a failed segment must not shift
     // the labels of the ones that succeeded.
