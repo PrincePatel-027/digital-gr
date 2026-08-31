@@ -1,8 +1,24 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+
+const subscribeToLocation = () => () => {}
+const getServerNotice = (): string | null => null
+
+function getLoginNotice(): string | null {
+  if (typeof window === 'undefined') return null
+
+  const reason = new URLSearchParams(window.location.search).get('reason')
+  if (reason === 'deactivated') {
+    return 'Your account has been deactivated. Please contact your school administrator.'
+  }
+  if (reason === 'no-school') {
+    return 'Your account is not linked to a school yet. Please contact your administrator.'
+  }
+  return null
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -10,18 +26,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  // Read the redirect reason from the URL. Done via window.location rather than
-  // useSearchParams so this page needs no Suspense boundary when prerendered.
-  useEffect(() => {
-    const reason = new URLSearchParams(window.location.search).get('reason')
-    if (reason === 'deactivated') {
-      setNotice('Your account has been deactivated. Please contact your school administrator.')
-    } else if (reason === 'no-school') {
-      setNotice('Your account is not linked to a school yet. Please contact your administrator.')
-    }
-  }, [])
+  const notice = useSyncExternalStore(
+    subscribeToLocation,
+    getLoginNotice,
+    getServerNotice
+  )
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()

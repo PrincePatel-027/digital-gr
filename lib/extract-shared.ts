@@ -216,6 +216,11 @@ export async function fetchWithRetry(
       return res
     } catch (err) {
       lastError = err
+      // An explicit caller abort (including our request timeout) is terminal. Retrying
+      // with the same already-aborted signal only adds backoff delay and cannot work.
+      if (init.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        throw err
+      }
       if (attempt < attempts) {
         await new Promise((r) => setTimeout(r, 700 * attempt))
         continue
@@ -246,6 +251,15 @@ function isValidIsoDate(v: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d
 }
 
+export interface ParsedRecordOptions {
+  /** Restrict mapping to a server-owned subset, such as one voice group. */
+  allowedFields?: readonly (keyof ParsedGRFields)[]
+  /** OCR collections require an identifying field; partial voice groups do not. */
+  requireIdentity?: boolean
+  /** Run the OCR admission/leaving-side ambiguity downgrade. */
+  downgradeAdmissionLeavingAmbiguity?: boolean
+}
+
 /**
  * Deterministic clean-up of whatever a model returned.
  *
@@ -254,7 +268,10 @@ function isValidIsoDate(v: string): boolean {
  * field prompts the user to fill it in, whereas a plausible-but-wrong value gets
  * silently saved into the permanent record.
  */
-function sanitizeRecord(rec: ParsedGRFields): ParsedGRFields {
+function sanitizeRecord(
+  rec: ParsedGRFields,
+  downgradeAdmissionLeavingAmbiguity = true
+): ParsedGRFields {
   // Dates must be real ISO dates.
   for (const f of DATE_FIELDS) {
     const v = rec[f]?.value
@@ -292,25 +309,51 @@ function sanitizeRecord(rec: ParsedGRFields): ParsedGRFields {
   const gr = rec.gr_number?.value
   if (gr && /^\d{9,}$/.test(gr)) delete rec.gr_number
 
-  // Admission-vs-leaving ambiguity: OCR flattens the two-page table, so when a row
-  // carries only ONE date/standard pair it cannot be proven which side it came from.
-  // Flag those as medium confidence so the UI shows an amber dot and the operator
-  // verifies them, rather than presenting a coin-flip as certain.
-  const hasAdmissionDate = !!rec.admission_date?.value
-  const hasLeavingDate = !!rec.leaving_date?.value
-  if (hasAdmissionDate !== hasLeavingDate) {
-    for (const f of ['admission_date', 'leaving_date'] as const) {
-      if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
+  // Admission-vs-leaving ambiguity is an OCR concern. Group-scoped voice mapping
+  // disables it for each partial result, then the merged record may opt in once.
+  if (downgradeAdmissionLeavingAmbiguity) {
+    const hasAdmissionDate = !!rec.admission_date?.value
+    const hasLeavingDate = !!rec.leaving_date?.value
+    if (hasAdmissionDate !== hasLeavingDate) {
+      for (const f of ['admission_date', 'leaving_date'] as const) {
+        if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
+      }
     }
-  }
-  const hasAdmissionStd = !!rec.admission_standard?.value
-  const hasLeavingStd = !!rec.leaving_standard?.value
-  if (hasAdmissionStd !== hasLeavingStd) {
-    for (const f of STANDARD_FIELDS) {
-      if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
+    const hasAdmissionStd = !!rec.admission_standard?.value
+    const hasLeavingStd = !!rec.leaving_standard?.value
+    if (hasAdmissionStd !== hasLeavingStd) {
+      for (const f of STANDARD_FIELDS) {
+        if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
+      }
     }
   }
 
+  return rec
+}
+
+/**
+ * Convert one provider object into a sanitized record. Voice groups use this seam
+ * with `requireIdentity: false` so Admission/Leaving-only results are not dropped,
+ * and defer the OCR side-ambiguity heuristic until group merge.
+ */
+export function toParsedRecord(
+  student: unknown,
+  confidence: ParsedField['confidence'] = 'high',
+  options: ParsedRecordOptions = {}
+): ParsedGRFields | null {
+  if (!student || typeof student !== 'object') return null
+
+  const src = student as Record<string, unknown>
+  const rec: ParsedGRFields = {}
+  const allowedFields = options.allowedFields ?? STRING_FIELDS
+  for (const fieldName of allowedFields) {
+    const field = toField(src[fieldName], confidence)
+    if (field) rec[fieldName] = field
+  }
+
+  sanitizeRecord(rec, options.downgradeAdmissionLeavingAmbiguity ?? true)
+  if (Object.keys(rec).length === 0) return null
+  if ((options.requireIdentity ?? true) && !rec.student_name && !rec.gr_number) return null
   return rec
 }
 
@@ -325,17 +368,9 @@ export function toParsedRecords(
 ): ParsedGRFields[] {
   const list = Array.isArray(students) ? students : []
   const records: ParsedGRFields[] = []
-  for (const s of list) {
-    if (!s || typeof s !== 'object') continue
-    const src = s as Record<string, unknown>
-    const rec: ParsedGRFields = {}
-    for (const f of STRING_FIELDS) {
-      const field = toField(src[f], confidence)
-      if (field) rec[f] = field
-    }
-    sanitizeRecord(rec)
-    // Keep only records that carry at least a name or a GR number — drops empties.
-    if (rec.student_name || rec.gr_number) records.push(rec)
+  for (const student of list) {
+    const record = toParsedRecord(student, confidence)
+    if (record) records.push(record)
   }
   return records
 }

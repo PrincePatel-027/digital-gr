@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { toGujaratiDigits } from '@/lib/gujarati'
@@ -12,12 +12,18 @@ const SPECIMEN = [
   { gr: '5204', name: 'જયેશ દિનેશભાઈ ઠાકોર', father: 'દિનેશભાઈ', std: '7', dob: '02-03-2014', left: true },
 ]
 
+const subscribeToHydration = () => () => {}
+const getClientSnapshot = () => true
+const getServerSnapshot = () => false
+
 export default function LandingPage() {
   const router = useRouter()
   const { session, loading } = useAuth()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => { setMounted(true) }, [])
+  const mounted = useSyncExternalStore(
+    subscribeToHydration,
+    getClientSnapshot,
+    getServerSnapshot
+  )
 
   useEffect(() => {
     if (!loading && session) router.replace('/dashboard')
