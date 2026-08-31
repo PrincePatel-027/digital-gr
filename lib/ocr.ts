@@ -11,6 +11,7 @@
 
 import sharp from 'sharp'
 import { digitiseWithSarvam, isSarvamDocAiConfigured } from './sarvam-doc-ai'
+import { providerTimeoutMs } from './extract-shared'
 import { preprocessForOcr } from './image-prep'
 
 // ── Types ─────────────────────────────────────────────────────
@@ -100,10 +101,15 @@ async function ocrSpaceRequest(
   formData.append('isTable', 'true') // Forces row-by-row parsing with tab separation
   formData.append('OCREngine', opts.engine)
 
+  // The only provider call in the chain that does not go through fetchWithRetry, so it
+  // needs its own bound: Engine 3 holds a dense page for up to OCR.space's 60s cap and
+  // Node's fetch would keep waiting past that, running the function into the platform's
+  // hard limit instead of failing this one pass.
   const res = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: formData.toString(),
+    signal: AbortSignal.timeout(providerTimeoutMs()),
   })
 
   if (!res.ok) {
@@ -213,18 +219,17 @@ export async function extractText(imageBuffer: Buffer): Promise<OcrResult> {
     }
 
     // Merge in reading order (left page then right), dropping empty/placeholder
-    // segments. Each segment keeps its page label: on a GR spread the left page
-    // holds admission columns and the right page holds leaving columns, so without
-    // the boundary a downstream consumer cannot tell an admission date from a
-    // leaving date.
+    // segments. Labels describe the actual physical form: identity/birth fields are
+    // on the left, while admission continues at the start of the right page before
+    // the starred leaving columns.
     const kept = texts
       .map((s) => ({ label: s.label, text: s.text.trim() }))
       .filter((s) => s.text && s.text !== '(No text detected in image)')
 
     const merged = kept
       .map((s) => {
-        if (s.label === 'left-page') return `===== LEFT PAGE (પત્રક ૪ — admission side) =====\n${s.text}`
-        if (s.label === 'right-page') return `===== RIGHT PAGE (પત્રક ૫ — leaving side) =====\n${s.text}`
+        if (s.label === 'left-page') return `===== LEFT PAGE (પત્રક ૪ — identity, birth and previous school) =====\n${s.text}`
+        if (s.label === 'right-page') return `===== RIGHT PAGE (પત્રક ૫ — admission continuation, then leaving fields) =====\n${s.text}`
         return s.text
       })
       .join('\n\n')

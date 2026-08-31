@@ -12,11 +12,17 @@ import {
 import { authorizeRequest, RequestAuthError, type AppRole } from '@/lib/server-auth'
 
 export const runtime = 'nodejs'
+// Declared rather than inherited: runOcrPipeline holds its own, smaller budget, so the
+// handler answers with a real JSON error before the platform can kill it mid-run.
+export const maxDuration = 300
 
 const ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const ALLOWED_ROLES = new Set<AppRole>(['school_admin', 'staff'])
-const MAX_FILE_BYTES = 8 * 1024 * 1024
-const MAX_TOTAL_BYTES = 40 * 1024 * 1024
+// Vercel rejects a request body over ~4.5 MB at the edge, answering a bare 413 before
+// this handler ever runs. Keeping our own ceilings under that line is what turns an
+// oversized scan into an actionable message instead of an opaque platform error.
+const MAX_FILE_BYTES = 2 * 1024 * 1024
+const MAX_TOTAL_BYTES = 4 * 1024 * 1024 + 256 * 1024
 
 class HttpError extends Error {
   constructor(
@@ -42,7 +48,7 @@ function requireFile(formData: FormData, field: string): File {
     )
   }
   if (entry.size === 0 || entry.size > MAX_FILE_BYTES) {
-    throw new HttpError(`${field} must be between 1 byte and 8 MB.`, 400)
+    throw new HttpError(`${field} must be between 1 byte and 2 MB.`, 400)
   }
   return entry
 }
@@ -72,7 +78,7 @@ export async function POST(req: NextRequest) {
     const allFiles = [overview, ...tiles]
     const totalBytes = allFiles.reduce((sum, file) => sum + file.size, 0)
     if (totalBytes > MAX_TOTAL_BYTES) {
-      throw new HttpError('Combined scan is too large. Maximum upload is 40 MB.', 400)
+      throw new HttpError('Combined scan is too large. Maximum upload is 4.25 MB.', 400)
     }
 
     // Keep decoded-image concurrency bounded. request.formData() already materializes

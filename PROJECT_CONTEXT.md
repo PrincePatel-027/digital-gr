@@ -36,13 +36,13 @@ pipeline test report lives at [`AUDIT_REPORT.md`](AUDIT_REPORT.md).
 
 A GR is an open two-page spread. The extraction code encodes this layout explicitly:
 
-- **Left page — પત્રક ૪ (Patrak 4), "મુખ્ય વિગતો" / main details** — admission side:
+- **Left page — પત્રક ૪ (Patrak 4), "મુખ્ય વિગતો" / main details**:
   register number, full name (`પુરૂં નામ`, written as *given · father's · surname*),
-  religion + caste (`જાત તથા પેટા જાત`), birth place, date of birth, previous school,
-  admission date, admission standard.
-- **Right page — પત્રક ૫ (Patrak 5), "શૈક્ષણિક વિગતો" / academic details** — leaving
-  side: leaving date, standard at leaving, progress & conduct, reason for leaving,
-  leaving-certificate remarks.
+  religion + caste (`જાત તથા પેટા જાત`), birth place, date of birth, and previous school.
+- **Right page — પત્રક ૫ (Patrak 5), "શૈક્ષણિક વિગતો" / academic details**:
+  admission date and admission standard are the first two unstarred columns; the starred
+  leaving section follows with leaving date, standard at leaving, progress & conduct,
+  reason for leaving, and leaving-certificate remarks.
 
 Correctly separating **admission** columns from **leaving** columns is a recurring
 theme in the prompts and sanitization logic, because both pages carry a

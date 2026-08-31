@@ -17,7 +17,7 @@ import {
 } from './extract-shared'
 import { preprocessForOcr } from './image-prep'
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const DEFAULT_MODEL = 'gemini-2.5-pro'
 
 export interface GeminiExtractResult {
   records: ParsedGRFields[]

@@ -243,6 +243,10 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
         throw new Error('Couldn\'t read the uploaded image for text extraction.')
       }
 
+      if (fileData.size > 4 * 1024 * 1024 + 256 * 1024) {
+        throw new Error('The image is too large to process. Choose a file up to 4.25 MB.')
+      }
+
       const formData = new FormData()
       formData.append('image', fileData, 'scan.jpg')
       const response = await fetch('/api/ocr-test', {
@@ -250,9 +254,32 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: formData,
       })
-      const result = await response.json() as OcrPipelineResponse | ApiErrorResponse
+      // Vercel can reject an oversized request or time out before the route returns
+      // JSON. Decode defensively so the user sees the real HTTP failure instead of a
+      // misleading "not valid JSON" browser error.
+      const result: unknown = await response.json().catch(() => null)
+      const apiError =
+        result !== null &&
+        typeof result === 'object' &&
+        'error' in result &&
+        typeof (result as ApiErrorResponse).error === 'string'
+          ? (result as ApiErrorResponse).error
+          : null
       if (!response.ok) {
-        throw new Error(('error' in result && result.error) || 'Text extraction failed.')
+        const fallbackMessage = response.status === 413
+          ? 'The image is too large to process. Choose a file up to 4.25 MB.'
+          : response.status === 504
+            ? 'Processing timed out on the server. Try again with a clearer image.'
+            : `Text extraction failed (HTTP ${response.status}).`
+        throw new Error(apiError || fallbackMessage)
+      }
+      if (
+        result === null ||
+        typeof result !== 'object' ||
+        !('mode' in result) ||
+        !('text' in result)
+      ) {
+        throw new Error('Text extraction returned an unreadable response. Please try again.')
       }
       if (requestId !== ocrRequestIdRef.current) return
 

@@ -118,7 +118,7 @@ export default function ImageUploader({
             <span className="text-accent font-semibold">Tap to upload</span> or take a photo
           </p>
           <p className="text-xs text-ink-faint">
-            JPG, PNG, WebP, TIFF or PDF · up to 10 MB
+            JPG, PNG, WebP, TIFF or PDF · up to 4.25 MB
           </p>
           <input
             ref={fileRef}

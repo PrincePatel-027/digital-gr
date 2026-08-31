@@ -8,6 +8,19 @@ import {
   GUIDED_SCAN_TILE_COUNT,
   type GuidedScanResponse,
 } from '@/lib/ocr-types'
+import {
+  MAX_GUIDED_SHOT_BYTES,
+  MAX_GUIDED_TOTAL_BYTES,
+  drawGuidedCropPreview,
+  encodeGuidedCrop,
+  formatGuidedBytes,
+  isLikelyBlackVideoFrame,
+  prepareGuidedFile,
+  prepareGuidedVideo,
+  rotateQuarterTurn,
+  type GuidedCropSettings,
+  type PreparedGuidedSource,
+} from '@/lib/guided-capture-client'
 
 interface GuidedRegisterScannerProps {
   disabled?: boolean
@@ -23,9 +36,13 @@ interface LocalQuality {
 }
 
 interface CaptureItem {
+  sourceBlob: Blob
   blob: Blob
   previewUrl: string
   quality: LocalQuality | null
+  crop: GuidedCropSettings
+  initialRotation: GuidedCropSettings['rotation']
+  dirty: boolean
 }
 
 interface CaptureStep {
@@ -149,122 +166,31 @@ function analyseCanvas(canvas: HTMLCanvasElement): LocalQuality {
   }
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error('Could not encode the captured frame.')),
-      'image/jpeg',
-      0.92
-    )
-  })
-}
-
-function drawSource(
-  source: CanvasImageSource,
-  sourceWidth: number,
-  sourceHeight: number,
-  overview: boolean
-): HTMLCanvasElement {
-  let drawable = source
-  let width = sourceWidth
-  let height = sourceHeight
-
-  // This product scans an open landscape spread. Messaging apps frequently strip
-  // EXIF, so normalize a portrait pixel matrix before the fixed 4:3 crop.
-  if (height > width) {
-    const oriented = document.createElement('canvas')
-    oriented.width = height
-    oriented.height = width
-    const orientedContext = oriented.getContext('2d')
-    if (!orientedContext) throw new Error('Canvas rotation is not available in this browser.')
-    orientedContext.translate(oriented.width, 0)
-    orientedContext.rotate(Math.PI / 2)
-    orientedContext.drawImage(source, 0, 0, width, height)
-    drawable = oriented
-    width = oriented.width
-    height = oriented.height
+async function buildCaptureItem(
+  prepared: PreparedGuidedSource,
+  preserveSourceAspect = false
+): Promise<CaptureItem> {
+  const crop: GuidedCropSettings = {
+    rotation: prepared.initialRotation,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0,
   }
-
-  const canvas = document.createElement('canvas')
-  const context = canvas.getContext('2d')
-  if (!context) throw new Error('Canvas capture is not available in this browser.')
-
-  if (overview) {
-    const scale = Math.min(1, 1800 / width, 1400 / height)
-    canvas.width = Math.max(1, Math.round(width * scale))
-    canvas.height = Math.max(1, Math.round(height * scale))
-    context.drawImage(drawable, 0, 0, width, height, 0, 0, canvas.width, canvas.height)
-    return canvas
-  }
-
-  const targetWidth = 1600
-  const targetHeight = 1200
-  const targetAspect = targetWidth / targetHeight
-  const sourceAspect = width / height
-  let cropWidth = width
-  let cropHeight = height
-  let cropX = 0
-  let cropY = 0
-
-  if (sourceAspect > targetAspect) {
-    cropWidth = height * targetAspect
-    cropX = (width - cropWidth) / 2
-  } else {
-    cropHeight = width / targetAspect
-    cropY = (height - cropHeight) / 2
-  }
-
-  canvas.width = targetWidth
-  canvas.height = targetHeight
-  context.drawImage(
-    drawable,
-    cropX,
-    cropY,
-    cropWidth,
-    cropHeight,
-    0,
-    0,
-    targetWidth,
-    targetHeight
-  )
-  return canvas
-}
-
-async function normaliseUpload(file: File, overview: boolean): Promise<{
-  blob: Blob
-  quality: LocalQuality | null
-}> {
-  if (!('createImageBitmap' in window)) return { blob: file, quality: null }
-
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
-  try {
-    const canvas = drawSource(bitmap, bitmap.width, bitmap.height, overview)
-    return { blob: await canvasToJpeg(canvas), quality: analyseCanvas(canvas) }
-  } finally {
-    bitmap.close()
+  const encoded = await encodeGuidedCrop(prepared.blob, crop, preserveSourceAspect)
+  return {
+    sourceBlob: prepared.blob,
+    blob: encoded.blob,
+    previewUrl: URL.createObjectURL(encoded.blob),
+    quality: analyseCanvas(encoded.canvas),
+    crop,
+    initialRotation: prepared.initialRotation,
+    dirty: false,
   }
 }
 
-async function rotateBlob180(blob: Blob): Promise<{
-  blob: Blob
-  quality: LocalQuality | null
-}> {
-  if (!('createImageBitmap' in window)) return { blob, quality: null }
-
-  const bitmap = await createImageBitmap(blob)
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Canvas rotation is not available in this browser.')
-    context.translate(canvas.width, canvas.height)
-    context.rotate(Math.PI)
-    context.drawImage(bitmap, 0, 0)
-    return { blob: await canvasToJpeg(canvas), quality: analyseCanvas(canvas) }
-  } finally {
-    bitmap.close()
-  }
+function revokeCapture(capture: CaptureItem | null): void {
+  if (!capture) return
+  URL.revokeObjectURL(capture.previewUrl)
 }
 
 export default function GuidedRegisterScanner({
@@ -274,10 +200,18 @@ export default function GuidedRegisterScanner({
 }: GuidedRegisterScannerProps) {
   const { session } = useAuth()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const cropPreviewRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const capturesRef = useRef<Array<CaptureItem | null>>(EMPTY_CAPTURES)
   const cameraRequestRef = useRef(0)
+  const cropPreviewRequestRef = useRef(0)
+  const recoveryTimerRef = useRef<number | null>(null)
+  const cameraWantedRef = useRef(false)
+  const resumeCameraAfterPickerRef = useRef(false)
+  const restartCameraRef = useRef<() => Promise<void>>(async () => {})
+  const trackCleanupRef = useRef<(() => void) | null>(null)
+  const autoStartNextRef = useRef(false)
   const submitControllerRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
 
@@ -294,26 +228,20 @@ export default function GuidedRegisterScanner({
 
   const reviewMode = stepIndex >= CAPTURE_STEPS.length
   const currentStep = reviewMode ? null : CAPTURE_STEPS[stepIndex]
+  const currentCapture = reviewMode ? null : captures[stepIndex]
+  const preserveCurrentAspect = currentStep?.key === 'overview'
   const capturedCount = captures.filter(Boolean).length
 
   useEffect(() => {
     capturesRef.current = captures
   }, [captures])
 
-  // The preview replaces the <video> element after each shot. Re-attach the same
-  // live stream when the next empty step mounts its new video element.
-  useEffect(() => {
-    const video = videoRef.current
-    const stream = streamRef.current
-    if (!cameraOpen || !video || !stream || video.srcObject === stream) return
-    video.srcObject = stream
-    void video.play().catch(() => {
-      if (mountedRef.current) setCameraError('Tap Start rear camera again to continue this scan.')
-    })
-  }, [cameraOpen, stepIndex, captures])
-
-  const stopCamera = useCallback(() => {
+  const releaseCamera = useCallback(() => {
     cameraRequestRef.current += 1
+    if (recoveryTimerRef.current !== null) window.clearTimeout(recoveryTimerRef.current)
+    recoveryTimerRef.current = null
+    trackCleanupRef.current?.()
+    trackCleanupRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
@@ -321,15 +249,69 @@ export default function GuidedRegisterScanner({
     setCameraStarting(false)
   }, [])
 
+  const stopCamera = useCallback(() => {
+    cameraWantedRef.current = false
+    releaseCamera()
+  }, [releaseCamera])
+
+  const scheduleCameraRecovery = useCallback((message: string) => {
+    if (!cameraWantedRef.current || document.visibilityState !== 'visible') return
+    if (recoveryTimerRef.current !== null) window.clearTimeout(recoveryTimerRef.current)
+    setCameraOpen(false)
+    setCameraError(message)
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = null
+      if (mountedRef.current && cameraWantedRef.current) void restartCameraRef.current()
+    }, 500)
+  }, [])
+
+  // The preview element is recreated between steps. Reattach and resume the current
+  // stream even when the MediaStream object itself has not changed.
   useEffect(() => {
+    const video = videoRef.current
+    const stream = streamRef.current
+    if (!cameraOpen || !video || !stream) return
+    if (video.srcObject !== stream) video.srcObject = stream
+    void video.play().catch(() => {
+      scheduleCameraRecovery('The camera preview paused. Reconnecting…')
+    })
+  }, [cameraOpen, stepIndex, captures, scheduleCameraRecovery])
+
+  useEffect(() => {
+    const recoverWhenVisible = () => {
+      if (document.visibilityState !== 'visible' || !cameraWantedRef.current) return
+      const track = streamRef.current?.getVideoTracks()[0]
+      if (!track || track.readyState !== 'live' || track.muted) {
+        scheduleCameraRecovery('The camera was suspended. Reconnecting…')
+        return
+      }
+      const video = videoRef.current
+      if (video) {
+        if (video.srcObject !== streamRef.current) video.srcObject = streamRef.current
+        void video.play().catch(() => scheduleCameraRecovery('The camera preview paused. Reconnecting…'))
+      }
+    }
+    document.addEventListener('visibilitychange', recoverWhenVisible)
+    window.addEventListener('pageshow', recoverWhenVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', recoverWhenVisible)
+      window.removeEventListener('pageshow', recoverWhenVisible)
+    }
+  }, [scheduleCameraRecovery])
+
+  useEffect(() => {
+    mountedRef.current = true
     return () => {
       mountedRef.current = false
+      cameraWantedRef.current = false
+      resumeCameraAfterPickerRef.current = false
       cameraRequestRef.current += 1
+      cropPreviewRequestRef.current += 1
+      if (recoveryTimerRef.current !== null) window.clearTimeout(recoveryTimerRef.current)
+      trackCleanupRef.current?.()
       submitControllerRef.current?.abort()
       streamRef.current?.getTracks().forEach((track) => track.stop())
-      capturesRef.current.forEach((capture) => {
-        if (capture) URL.revokeObjectURL(capture.previewUrl)
-      })
+      capturesRef.current.forEach(revokeCapture)
     }
   }, [])
 
@@ -338,11 +320,14 @@ export default function GuidedRegisterScanner({
     setCaptureError(null)
 
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      cameraWantedRef.current = false
       setCameraError('Live camera requires HTTPS or localhost. Use “Take/upload photo” below on this connection.')
       return
     }
 
-    stopCamera()
+    cameraWantedRef.current = true
+    releaseCamera()
+    cameraWantedRef.current = true
     const requestId = ++cameraRequestRef.current
     setCameraStarting(true)
     let acquired: MediaStream | null = null
@@ -356,27 +341,43 @@ export default function GuidedRegisterScanner({
           height: { ideal: 1440 },
         },
       })
-      if (!mountedRef.current || requestId !== cameraRequestRef.current) {
+      if (!mountedRef.current || requestId !== cameraRequestRef.current || !cameraWantedRef.current) {
         acquired.getTracks().forEach((track) => track.stop())
         return
       }
 
       const video = videoRef.current
       if (!video) throw new Error('Camera preview is unavailable.')
-      video.srcObject = acquired
+      const track = acquired.getVideoTracks()[0]
+      if (!track) throw new Error('No video track was returned by this camera.')
+
+      const recoverMuted = () => scheduleCameraRecovery('The camera feed was interrupted. Reconnecting…')
+      const recoverEnded = () => scheduleCameraRecovery('The camera stopped. Reconnecting…')
+      track.addEventListener('mute', recoverMuted)
+      track.addEventListener('ended', recoverEnded)
+      acquired.addEventListener('inactive', recoverEnded)
+      trackCleanupRef.current = () => {
+        track.removeEventListener('mute', recoverMuted)
+        track.removeEventListener('ended', recoverEnded)
+        acquired?.removeEventListener('inactive', recoverEnded)
+      }
+
       streamRef.current = acquired
+      video.srcObject = acquired
       await video.play()
 
-      if (!mountedRef.current || requestId !== cameraRequestRef.current) {
-        acquired.getTracks().forEach((track) => track.stop())
+      if (!mountedRef.current || requestId !== cameraRequestRef.current || !cameraWantedRef.current) {
+        acquired.getTracks().forEach((currentTrack) => currentTrack.stop())
         if (streamRef.current === acquired) streamRef.current = null
         return
       }
       setCameraOpen(true)
+      setCameraError(null)
     } catch (error) {
       acquired?.getTracks().forEach((track) => track.stop())
       if (streamRef.current === acquired) streamRef.current = null
       if (!mountedRef.current || requestId !== cameraRequestRef.current) return
+      cameraWantedRef.current = false
       const name = error instanceof DOMException ? error.name : ''
       setCameraError(
         name === 'NotAllowedError'
@@ -386,110 +387,221 @@ export default function GuidedRegisterScanner({
     } finally {
       if (mountedRef.current && requestId === cameraRequestRef.current) setCameraStarting(false)
     }
-  }, [stopCamera])
+  }, [releaseCamera, scheduleCameraRecovery])
+
+  useEffect(() => {
+    restartCameraRef.current = startCamera
+  }, [startCamera])
+
+  const restoreCameraAfterPicker = useCallback(() => {
+    const shouldResume = resumeCameraAfterPickerRef.current
+    resumeCameraAfterPickerRef.current = false
+    if (shouldResume && mountedRef.current) void startCamera()
+  }, [startCamera])
+
+  useEffect(() => {
+    const input = fileInputRef.current
+    if (!input) return
+    input.addEventListener('cancel', restoreCameraAfterPicker)
+    return () => input.removeEventListener('cancel', restoreCameraAfterPicker)
+  }, [currentCapture, restoreCameraAfterPicker, reviewMode, stepIndex])
+
+  useEffect(() => {
+    if (!autoStartNextRef.current || reviewMode || currentCapture) return
+    autoStartNextRef.current = false
+    void startCamera()
+  }, [currentCapture, reviewMode, startCamera, stepIndex])
 
   const replaceCapture = useCallback((index: number, next: CaptureItem) => {
-    setCaptures((previous) => {
-      const updated = [...previous]
-      if (updated[index]) URL.revokeObjectURL(updated[index]!.previewUrl)
-      updated[index] = next
-      return updated
-    })
+    if (!mountedRef.current) {
+      revokeCapture(next)
+      return
+    }
+    const previous = capturesRef.current[index]
+    if (previous?.previewUrl !== next.previewUrl) {
+      if (previous) URL.revokeObjectURL(previous.previewUrl)
+    }
+    const updated = [...capturesRef.current]
+    updated[index] = next
+    capturesRef.current = updated
+    setCaptures(updated)
   }, [])
 
+  const updateCurrentCrop = useCallback((patch: Partial<GuidedCropSettings>) => {
+    const capture = capturesRef.current[stepIndex]
+    if (!capture) return
+    const updated = [...capturesRef.current]
+    updated[stepIndex] = {
+      ...capture,
+      crop: { ...capture.crop, ...patch },
+      dirty: true,
+    }
+    capturesRef.current = updated
+    setCaptures(updated)
+    setCaptureError(null)
+  }, [stepIndex])
+
   const clearCapture = useCallback((index: number) => {
-    setCaptures((previous) => {
-      const updated = [...previous]
-      if (updated[index]) URL.revokeObjectURL(updated[index]!.previewUrl)
-      updated[index] = null
-      return updated
-    })
+    const previous = capturesRef.current[index]
+    revokeCapture(previous)
+    const updated = [...capturesRef.current]
+    updated[index] = null
+    capturesRef.current = updated
+    setCaptures(updated)
+    autoStartNextRef.current = false
     setCaptureError(null)
   }, [])
 
-  async function rotateCurrentCapture() {
-    const capture = captures[stepIndex]
-    if (!capture) return
+  useEffect(() => {
+    const capture = currentCapture
+    const canvas = cropPreviewRef.current
+    if (!capture || !canvas) return
+    const requestId = ++cropPreviewRequestRef.current
+    const timer = window.setTimeout(() => {
+      void drawGuidedCropPreview(capture.sourceBlob, capture.crop, preserveCurrentAspect)
+        .then((preview) => {
+          if (!mountedRef.current || requestId !== cropPreviewRequestRef.current) return
+          canvas.width = preview.width
+          canvas.height = preview.height
+          const context = canvas.getContext('2d')
+          if (!context) throw new Error('Canvas crop preview is unavailable in this browser.')
+          context.drawImage(preview, 0, 0)
+        })
+        .catch((error) => {
+          if (mountedRef.current && requestId === cropPreviewRequestRef.current) {
+            setCaptureError(error instanceof Error ? error.message : 'Could not preview this crop.')
+          }
+        })
+    }, 60)
+    return () => {
+      window.clearTimeout(timer)
+      cropPreviewRequestRef.current += 1
+    }
+  }, [
+    currentCapture,
+    currentCapture?.crop.offsetX,
+    currentCapture?.crop.offsetY,
+    currentCapture?.crop.rotation,
+    currentCapture?.crop.zoom,
+    preserveCurrentAspect,
+  ])
+
+  async function applyCurrentCrop(): Promise<boolean> {
+    const capture = capturesRef.current[stepIndex]
+    if (!capture) return false
+    if (!capture.dirty) return true
 
     setCapturing(true)
     setCaptureError(null)
     try {
-      const rotated = await rotateBlob180(capture.blob)
+      const encoded = await encodeGuidedCrop(
+        capture.sourceBlob,
+        capture.crop,
+        CAPTURE_STEPS[stepIndex]?.key === 'overview'
+      )
+      if (!mountedRef.current) return false
       replaceCapture(stepIndex, {
-        blob: rotated.blob,
-        previewUrl: URL.createObjectURL(rotated.blob),
-        quality: rotated.quality,
+        ...capture,
+        blob: encoded.blob,
+        previewUrl: URL.createObjectURL(encoded.blob),
+        quality: analyseCanvas(encoded.canvas),
+        dirty: false,
       })
+      return true
     } catch (error) {
-      setCaptureError(error instanceof Error ? error.message : 'Could not rotate this photo.')
+      setCaptureError(error instanceof Error ? error.message : 'Could not apply this crop.')
+      return false
     } finally {
-      setCapturing(false)
+      if (mountedRef.current) setCapturing(false)
     }
+  }
+
+  function rotateCurrentCapture(delta: -1 | 1) {
+    const capture = capturesRef.current[stepIndex]
+    if (!capture) return
+    updateCurrentCrop({ rotation: rotateQuarterTurn(capture.crop.rotation, delta) })
+  }
+
+  function resetCurrentCrop() {
+    const capture = capturesRef.current[stepIndex]
+    if (!capture) return
+    updateCurrentCrop({
+      rotation: capture.initialRotation,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+    })
   }
 
   async function captureFrame() {
     const video = videoRef.current
-    if (!video || !video.videoWidth || !video.videoHeight || !currentStep) {
-      setCaptureError('The camera is still focusing. Wait a moment and try again.')
+    const track = streamRef.current?.getVideoTracks()[0]
+    if (!video || !track || track.readyState !== 'live' || track.muted || !currentStep) {
+      scheduleCameraRecovery('The camera feed is not ready. Reconnecting…')
+      return
+    }
+    if (isLikelyBlackVideoFrame(video)) {
+      scheduleCameraRecovery('A blank camera frame was detected. Reconnecting…')
       return
     }
 
     setCapturing(true)
     setCaptureError(null)
     try {
-      const canvas = drawSource(
-        video,
-        video.videoWidth,
-        video.videoHeight,
-        currentStep.key === 'overview'
-      )
-      const quality = analyseCanvas(canvas)
-      const blob = await canvasToJpeg(canvas)
-      replaceCapture(stepIndex, {
-        blob,
-        previewUrl: URL.createObjectURL(blob),
-        quality,
-      })
+      const prepared = await prepareGuidedVideo(video)
+      stopCamera()
+      const capture = await buildCaptureItem(prepared, currentStep.key === 'overview')
+      replaceCapture(stepIndex, capture)
+      autoStartNextRef.current = true
     } catch (error) {
       setCaptureError(error instanceof Error ? error.message : 'Could not capture this frame.')
     } finally {
-      setCapturing(false)
+      if (mountedRef.current) setCapturing(false)
     }
+  }
+
+  function openFilePicker() {
+    const input = fileInputRef.current
+    if (!input) return
+    autoStartNextRef.current = false
+    resumeCameraAfterPickerRef.current = cameraWantedRef.current
+    stopCamera()
+    input.click()
   }
 
   async function handleFileSelection(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ''
-    if (!file || !currentStep) return
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setCaptureError('Choose a JPEG, PNG, or WebP image.')
+    if (!file) {
+      restoreCameraAfterPicker()
       return
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setCaptureError('This photo is larger than 8 MB. Choose a smaller original camera image.')
+    if (!currentStep) {
+      restoreCameraAfterPicker()
       return
     }
 
     setCapturing(true)
     setCaptureError(null)
     try {
-      const normalised = await normaliseUpload(file, currentStep.key === 'overview')
-      replaceCapture(stepIndex, {
-        blob: normalised.blob,
-        previewUrl: URL.createObjectURL(normalised.blob),
-        quality: normalised.quality,
-      })
+      const prepared = await prepareGuidedFile(file)
+      replaceCapture(stepIndex, await buildCaptureItem(prepared, currentStep.key === 'overview'))
+      resumeCameraAfterPickerRef.current = false
     } catch (error) {
-      setCaptureError(error instanceof Error ? error.message : 'Could not read this photo.')
+      const message = error instanceof Error ? error.message : 'Could not read this photo.'
+      restoreCameraAfterPicker()
+      setCaptureError(message)
     } finally {
-      setCapturing(false)
+      if (mountedRef.current) setCapturing(false)
     }
   }
 
-  function moveNext() {
-    if (!captures[stepIndex]) return
+  async function moveNext() {
+    if (!capturesRef.current[stepIndex]) return
+    if (!(await applyCurrentCrop())) return
     setCaptureError(null)
     if (stepIndex === CAPTURE_STEPS.length - 1) {
+      autoStartNextRef.current = false
       stopCamera()
       setStepIndex(CAPTURE_STEPS.length)
       return
@@ -506,9 +618,7 @@ export default function GuidedRegisterScanner({
 
   function resetAll() {
     stopCamera()
-    capturesRef.current.forEach((capture) => {
-      if (capture) URL.revokeObjectURL(capture.previewUrl)
-    })
+    capturesRef.current.forEach(revokeCapture)
     const empty = [...EMPTY_CAPTURES]
     capturesRef.current = empty
     setCaptures(empty)
@@ -526,6 +636,21 @@ export default function GuidedRegisterScanner({
     }
     if (captures.some((capture) => !capture)) {
       setCaptureError('Capture the overview and all six blocks before processing.')
+      return
+    }
+
+    const completedCaptures = capturesRef.current.filter((capture): capture is CaptureItem => Boolean(capture))
+    if (completedCaptures.length !== CAPTURE_STEPS.length) {
+      setCaptureError('Capture the overview and all six blocks before processing.')
+      return
+    }
+    if (completedCaptures.some((capture) => capture.blob.size > MAX_GUIDED_SHOT_BYTES)) {
+      setCaptureError('One or more shots exceed the safe upload size. Open each shot and apply its crop again.')
+      return
+    }
+    const totalBytes = completedCaptures.reduce((sum, capture) => sum + capture.blob.size, 0)
+    if (totalBytes > MAX_GUIDED_TOTAL_BYTES) {
+      setCaptureError(`The seven-shot scan is ${formatGuidedBytes(totalBytes)}. Re-crop one or more shots before uploading.`)
       return
     }
 
@@ -548,10 +673,22 @@ export default function GuidedRegisterScanner({
         body: formData,
         signal: controller.signal,
       })
-      const result = await response.json()
+      // A failure raised before the route runs (413 at the edge) or after it is killed
+      // (504) answers with a non-JSON body. Parsing that blindly reports a JSON syntax
+      // error and hides the real cause, so fall back to the status.
+      const result = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error(typeof result.error === 'string' ? result.error : 'Guided scan processing failed.')
+        throw new Error(
+          typeof result?.error === 'string'
+            ? result.error
+            : response.status === 413
+              ? 'The captured blocks are too large to upload. Retake them and try again.'
+              : response.status === 504
+                ? 'Processing timed out on the server. Try again with a clearer capture.'
+                : `Guided scan processing failed (HTTP ${response.status}).`
+        )
       }
+      if (!result) throw new Error('Guided scan returned an unreadable response.')
       if (!mountedRef.current || controller.signal.aborted) return
 
       const guidedResult = result as GuidedScanResponse
@@ -618,7 +755,14 @@ export default function GuidedRegisterScanner({
         </span>
       </div>
 
-      <div className="h-1.5 bg-surface-2 overflow-hidden border border-line">
+      <div
+        className="h-1.5 bg-surface-2 overflow-hidden border border-line"
+        role="progressbar"
+        aria-label="Guided scan progress"
+        aria-valuemin={0}
+        aria-valuemax={CAPTURE_STEPS.length}
+        aria-valuenow={capturedCount}
+      >
         <div
           className="h-full bg-accent transition-[width] duration-300"
           style={{ width: `${capturedCount / CAPTURE_STEPS.length * 100}%` }}
@@ -652,7 +796,9 @@ export default function GuidedRegisterScanner({
                   ref={videoRef}
                   playsInline
                   muted
-                  className={`w-full h-full object-cover ${cameraOpen ? 'block' : 'hidden'}`}
+                  autoPlay
+                  aria-label="Live rear camera preview"
+                  className={`block w-full h-full object-cover transition-opacity ${cameraOpen ? 'opacity-100' : 'opacity-0'}`}
                 />
                 {!cameraOpen && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 text-white/80">
@@ -700,7 +846,7 @@ export default function GuidedRegisterScanner({
                 )}
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={openFilePicker}
                   disabled={disabled || capturing || cameraStarting}
                   className="neu-btn neu-btn-secondary"
                 >
@@ -716,28 +862,114 @@ export default function GuidedRegisterScanner({
                 className="sr-only"
               />
             </>
-          ) : (
-            <div className="space-y-3">
-              <div className="relative bg-surface-2 border border-line-strong overflow-hidden">
-                <img
-                  src={captures[stepIndex]!.previewUrl}
-                  alt={`${currentStep.title} capture preview`}
-                  className="w-full max-h-[420px] object-contain"
+          ) : currentCapture ? (
+            <div className="space-y-4">
+              <div className="relative aspect-[4/3] bg-[#171714] border border-line-strong overflow-hidden">
+                <canvas
+                  ref={cropPreviewRef}
+                  className="block w-full h-full object-contain"
+                  role="img"
+                  aria-label={`${currentStep.title} crop preview`}
                 />
+                <div className="pointer-events-none absolute inset-[8%] border border-white/80">
+                  <span className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/65 text-white text-[10px] font-semibold px-2 py-1 whitespace-nowrap">
+                    Keep handwriting inside this safe area
+                  </span>
+                </div>
                 <span className={`absolute top-3 right-3 neu-badge ${
-                  captures[stepIndex]!.quality?.warnings.length
+                  currentCapture.dirty
                     ? 'bg-warning text-white'
-                    : 'bg-success text-white'
+                    : currentCapture.quality?.warnings.length
+                      ? 'bg-warning text-white'
+                      : 'bg-success text-white'
                 }`}>
-                  {captures[stepIndex]!.quality?.warnings.length ? 'Check quality' : 'Captured'}
+                  {currentCapture.dirty
+                    ? 'Crop not applied'
+                    : currentCapture.quality?.warnings.length
+                      ? 'Check quality'
+                      : formatGuidedBytes(currentCapture.blob.size)}
                 </span>
               </div>
 
-              {captures[stepIndex]!.quality?.warnings.map((warning) => (
+              <div className="neu-card-flat p-4 space-y-4">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Rotate and reset crop">
+                  <button
+                    type="button"
+                    onClick={() => rotateCurrentCapture(-1)}
+                    disabled={processing || capturing}
+                    className="neu-btn neu-btn-secondary flex-1"
+                  >
+                    Rotate left 90°
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => rotateCurrentCapture(1)}
+                    disabled={processing || capturing}
+                    className="neu-btn neu-btn-secondary flex-1"
+                  >
+                    Rotate right 90°
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetCurrentCrop}
+                    disabled={processing || capturing}
+                    className="neu-btn neu-btn-ghost flex-1"
+                  >
+                    Reset crop
+                  </button>
+                </div>
+
+                <label className="block text-xs font-semibold text-ink">
+                  Crop zoom <span className="text-ink-soft font-normal">{currentCapture.crop.zoom.toFixed(2)}×</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="0.05"
+                    value={currentCapture.crop.zoom}
+                    onChange={(event) => updateCurrentCrop({ zoom: Number(event.target.value) })}
+                    disabled={processing || capturing}
+                    className="w-full mt-2 accent-[var(--color-accent)]"
+                  />
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <label className="block text-xs font-semibold text-ink">
+                    Move left or right
+                    <input
+                      type="range"
+                      min="-1"
+                      max="1"
+                      step="0.02"
+                      value={currentCapture.crop.offsetX}
+                      onChange={(event) => updateCurrentCrop({ offsetX: Number(event.target.value) })}
+                      disabled={processing || capturing}
+                      className="w-full mt-2 accent-[var(--color-accent)]"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold text-ink">
+                    Move up or down
+                    <input
+                      type="range"
+                      min="-1"
+                      max="1"
+                      step="0.02"
+                      value={currentCapture.crop.offsetY}
+                      onChange={(event) => updateCurrentCrop({ offsetY: Number(event.target.value) })}
+                      disabled={processing || capturing}
+                      className="w-full mt-2 accent-[var(--color-accent)]"
+                    />
+                  </label>
+                </div>
+                <p className="text-[11px] text-ink-faint">
+                  Every accepted shot is converted to JPEG and kept below {formatGuidedBytes(MAX_GUIDED_SHOT_BYTES)} before upload.
+                </p>
+              </div>
+
+              {currentCapture.quality?.warnings.map((warning) => (
                 <p key={warning} className="text-xs text-warning font-medium">• {warning}</p>
               ))}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => clearCapture(stepIndex)}
@@ -748,26 +980,27 @@ export default function GuidedRegisterScanner({
                 </button>
                 <button
                   type="button"
-                  onClick={rotateCurrentCapture}
-                  disabled={processing || capturing}
-                  className="neu-btn neu-btn-secondary"
-                >
-                  {capturing ? 'Rotating…' : 'Rotate 180°'}
-                </button>
-                <button
-                  type="button"
                   onClick={moveNext}
                   disabled={processing || capturing}
                   className="neu-btn neu-btn-primary"
                 >
-                  {stepIndex === CAPTURE_STEPS.length - 1 ? 'Review all shots' : 'Looks good · Next'}
+                  {capturing
+                    ? 'Applying crop…'
+                    : stepIndex === CAPTURE_STEPS.length - 1
+                      ? 'Apply crop and review'
+                      : 'Apply crop and next'}
                 </button>
               </div>
+              <p className="sr-only" aria-live="polite">
+                {currentCapture.dirty
+                  ? 'Crop changes are ready to apply.'
+                  : `Crop applied. ${formatGuidedBytes(currentCapture.blob.size)}.`}
+              </p>
             </div>
-          )}
+          ) : null}
 
           {(cameraError || captureError) && (
-            <div className="neu-card-flat p-3 border-warning/50">
+            <div className="neu-card-flat p-3 border-warning/50" role="alert">
               <p className="text-xs font-medium text-warning">{captureError || cameraError}</p>
             </div>
           )}
@@ -794,7 +1027,11 @@ export default function GuidedRegisterScanner({
                   className="text-left border border-line-strong bg-surface hover:border-accent transition-colors overflow-hidden"
                 >
                   {capture ? (
-                    <img src={capture.previewUrl} alt="" className="w-full aspect-[4/3] object-cover" />
+                    <img
+                      src={capture.previewUrl}
+                      alt=""
+                      className={`w-full aspect-[4/3] ${index === 0 ? 'object-contain bg-[#171714]' : 'object-cover'}`}
+                    />
                   ) : (
                     <div className="w-full aspect-[4/3] bg-surface-2 flex items-center justify-center text-error text-xs">Missing</div>
                   )}
@@ -807,7 +1044,7 @@ export default function GuidedRegisterScanner({
           </div>
 
           {captureError && (
-            <div className="neu-card-flat p-3 border-warning/50">
+            <div className="neu-card-flat p-3 border-warning/50" role="alert">
               <p className="text-xs font-medium text-warning">{captureError}</p>
             </div>
           )}
@@ -849,7 +1086,7 @@ export default function GuidedRegisterScanner({
       )}
 
       <div className="text-[11px] text-ink-faint leading-relaxed border-t border-line pt-3">
-        Live camera works on HTTPS or localhost. On other phone connections, use the camera-file button for every shot.
+        Large phone photos are resized and compressed on-device before upload. Live camera requires HTTPS or localhost; if the phone suspends it, the scanner reconnects automatically.
       </div>
     </div>
   )

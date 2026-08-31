@@ -22,7 +22,32 @@ type ExtractResult = {
   error?: string
 }
 
-const DEFAULT_ORDER = ['sarvam-doc-ai', 'gemini', 'gemini-text', 'openai', 'mistral', 'sarvam-text']
+// Gemini vision is the default first structured read. It can use the whole spread's
+// geometry and shared column contract; Sarvam remains the Gujarati-specialised fallback.
+// OCR_EXTRACTOR_ORDER can override this after fixture-based comparison.
+const DEFAULT_ORDER = ['gemini', 'sarvam-doc-ai', 'gemini-text', 'openai', 'mistral', 'sarvam-text']
+
+/**
+ * Total wall-clock budget for one pipeline run (anchor + extraction chain).
+ *
+ * Every extractor swallows its own failure and returns zero records, so the chain
+ * deliberately walks on to the next — and the later entries are the slowest
+ * (reasoning models with a 16k token budget). Bounding each call is not enough:
+ * six of them in sequence still outlives the function. Stopping on a deadline
+ * returns the anchor text plus an explanatory warning, which is strictly more
+ * useful than being killed mid-run and returning nothing at all.
+ */
+const DEFAULT_PIPELINE_BUDGET_MS = 200_000
+
+/** Below this, an extractor has no realistic chance of finishing — don't start it. */
+const MIN_EXTRACTOR_MS = 15_000
+
+function pipelineBudgetMs(): number {
+  const configured = Number(process.env.OCR_PIPELINE_BUDGET_MS)
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_PIPELINE_BUDGET_MS
+}
 
 function enabledFlag(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase())
@@ -63,6 +88,7 @@ export async function runOcrPipeline(
   buffer: Buffer,
   fileMeta: OcrFileMeta
 ): Promise<OcrPipelineResponse> {
+  const deadline = Date.now() + pipelineBudgetMs()
   const warnings: string[] = []
   const ocr = await extractText(buffer)
   const ocrText = ocr.text && ocr.text !== '(No text detected in image)' ? ocr.text : ''
@@ -109,6 +135,12 @@ export async function runOcrPipeline(
   for (const key of order) {
     const candidate = runners[key]
     if (!candidate || !candidate.available || (candidate.needsText && !ocrText)) continue
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs < MIN_EXTRACTOR_MS) {
+      warnings.push(`extraction stopped after ${pipelineBudgetMs()} ms budget: ${labelFor(key, Boolean(ocrText))} and any later extractor were skipped`)
+      break
+    }
 
     const result = await candidate.run()
     const label = labelFor(key, Boolean(ocrText))
@@ -245,7 +277,7 @@ export function getOcrHealth(): OcrHealthResponse {
 
   const labels: Record<string, string> = {
     'sarvam-doc-ai': `sarvam-doc-ai-extract (${process.env.SARVAM_DOC_AI_MODEL || 'sarvam-vision-v1'})`,
-    gemini: `gemini+ocr (${process.env.GEMINI_MODEL || 'gemini-2.5-flash'})`,
+    gemini: `gemini+ocr (${process.env.GEMINI_MODEL || 'gemini-2.5-pro'})`,
     'gemini-text': 'gemini-text',
     openai: `openai (${process.env.OPENAI_MODEL || 'gpt-5.6'})`,
     mistral: `mistral+ocr (${process.env.MISTRAL_MODEL || 'mistral-small-latest'})`,

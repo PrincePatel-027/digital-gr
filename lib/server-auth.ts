@@ -25,6 +25,16 @@ export async function authorizeRequest(
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !serviceKey) {
+    // Names only, never values. The client-facing message stays deliberately vague so a
+    // misconfigured deployment does not advertise which secret it is missing.
+    const missing: string[] = []
+    if (!url) missing.push('NEXT_PUBLIC_SUPABASE_URL')
+    if (!serviceKey) missing.push('SUPABASE_SERVICE_ROLE_KEY')
+    console.error(
+      `[server-auth] Missing environment variable(s): ${missing.join(', ')}. ` +
+        'Set them in the deployment environment, then redeploy (Vercel does not apply ' +
+        'new env vars to existing deployments).'
+    )
     throw new RequestAuthError('Server authentication is not configured.', 500)
   }
 
