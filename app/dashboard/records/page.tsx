@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/lib/auth-context'
+import { useAuth, type Profile } from '@/lib/auth-context'
 import { toGujaratiDigits, formatRegisterDate, STANDARDS } from '@/lib/gujarati'
 
 interface GRRecord {
@@ -19,6 +19,13 @@ interface GRRecord {
   leaving_date: string | null
   image_url: string | null
   created_at: string
+}
+
+interface RecordsLoadResult {
+  profile: Profile | null
+  reloadVersion: number
+  records: GRRecord[]
+  error: string | null
 }
 
 type StatusFilter = 'all' | 'studying' | 'left'
@@ -37,20 +44,29 @@ export default function RecordsListPage() {
   const { profile } = useAuth()
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const [records, setRecords] = useState<GRRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [reloadVersion, setReloadVersion] = useState(0)
+  const [loadResult, setLoadResult] = useState<RecordsLoadResult>({
+    profile: null,
+    reloadVersion: -1,
+    records: [],
+    error: null,
+  })
 
-  const [searchQuery, setSearchQuery] = useState('')
+  const resultIsCurrent =
+    profile !== null &&
+    loadResult.profile === profile &&
+    loadResult.reloadVersion === reloadVersion
+  const records = loadResult.records
+  const loading = !resultIsCurrent
+  const error = resultIsCurrent ? loadResult.error : null
+
+  const [searchQuery, setSearchQuery] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('q') ?? ''
+  })
   const [stdFilter, setStdFilter] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortMode, setSortMode] = useState<SortMode>('gr-asc')
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const q = params.get('q')
-    if (q) setSearchQuery(q)
-  }, [])
 
   // "/" focuses the lookup box — the action a clerk repeats all day.
   useEffect(() => {
@@ -66,37 +82,42 @@ export default function RecordsListPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const fetchRecords = async () => {
-    if (!profile) return
-    setLoading(true)
-    setError(null)
-
-    // RLS already restricts rows to the caller's school. Filtering explicitly as
-    // well is defence in depth: if a policy is ever changed or dropped, this query
-    // still cannot show another school's records. super_admin has no school_id and
-    // is intentionally allowed to see across schools.
-    let query = supabase
-      .from('gr_records')
-      .select('id, gr_number, student_name, surname, fathers_name, date_of_birth, admission_date, admission_standard, leaving_date, image_url, created_at')
-    if (profile.school_id) {
-      query = query.eq('school_id', profile.school_id)
-    }
-
-    const { data, error: fetchErr } = await query.order('created_at', { ascending: false })
-
-    if (fetchErr) {
-      setError(fetchErr.message)
-    } else {
-      setRecords(data || [])
-    }
-    setLoading(false)
-  }
+  const fetchRecords = () => setReloadVersion((version) => version + 1)
 
   useEffect(() => {
     if (!profile) return
-    fetchRecords()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile])
+
+    const activeProfile = profile
+    let ignore = false
+
+    async function loadRecords() {
+      // RLS already restricts rows to the caller's school. Filtering explicitly as
+      // well is defence in depth: if a policy is ever changed or dropped, this query
+      // still cannot show another school's records. super_admin has no school_id and
+      // is intentionally allowed to see across schools.
+      let query = supabase
+        .from('gr_records')
+        .select('id, gr_number, student_name, surname, fathers_name, date_of_birth, admission_date, admission_standard, leaving_date, image_url, created_at')
+      if (activeProfile.school_id) {
+        query = query.eq('school_id', activeProfile.school_id)
+      }
+
+      const { data, error: fetchErr } = await query.order('created_at', { ascending: false })
+      if (ignore) return
+
+      setLoadResult((previous) => ({
+        profile: activeProfile,
+        reloadVersion,
+        records: fetchErr ? previous.records : data ?? [],
+        error: fetchErr?.message ?? null,
+      }))
+    }
+
+    void loadRecords()
+    return () => {
+      ignore = true
+    }
+  }, [profile, reloadVersion])
 
   const canCreate = profile?.role === 'staff' || profile?.role === 'school_admin'
   const canEdit = canCreate

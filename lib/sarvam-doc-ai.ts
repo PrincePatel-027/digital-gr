@@ -340,7 +340,7 @@ function buildExtractSchema(): string {
       students: {
         type: 'array',
         description:
-          'One entry per student — i.e. per numbered register row on the page. Extract EVERY student. Skip printed column headers and any blank or "નમુનો" (specimen/sample) row. Each row with its own register number is a separate student. Never invent or "correct" a value: if you cannot read a field with confidence, return an empty string for it.',
+          'One entry per student — i.e. per numbered register row on the page. Extract EVERY student. On an open two-page spread, pair the right-page cells only with the left-page row at the same horizontal height; never shift values to the row above or below. The first two right-page columns are admission date and admission standard; the starred leaving section comes after them. Skip printed column headers and any blank or "નમુનો" (specimen/sample) row. Each row with its own register number is a separate student. Never invent or "correct" a value: if you cannot read a field or row alignment with confidence, return an empty string for it.',
         items: {
           type: 'object',
           description: 'A single student record from one register row.',

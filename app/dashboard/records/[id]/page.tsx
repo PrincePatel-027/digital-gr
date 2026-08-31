@@ -32,8 +32,8 @@ interface GRRecordData {
   leaving_standard: string
   remarks: string
   // System
-  image_url: string
-  ocr_raw_text: string
+  image_url: string | null
+  ocr_raw_text: string | null
   created_at: string
 }
 
@@ -144,6 +144,7 @@ export default function RecordDetailPage() {
   const canEdit = profile?.role === 'staff' || profile?.role === 'school_admin'
   const canDelete = profile?.role === 'school_admin'
   const hasLeft = !!record.leaving_date
+  const hasSpokenAudit = record.ocr_raw_text?.includes('===== SPOKEN (') ?? false
 
   return (
     <div className="space-y-5">
@@ -315,8 +316,8 @@ export default function RecordDetailPage() {
           <section className="neu-card overflow-hidden no-print">
             <header className="px-5 py-3 border-b border-line-strong bg-surface-2 flex items-center justify-between">
               <div>
-                <h2 className="font-gujarati-serif text-sm font-semibold">વાંચેલું લખાણ</h2>
-                <p className="label-en">Text read from the page</p>
+                <h2 className="font-gujarati-serif text-sm font-semibold">સ્રોત લખાણ</h2>
+                <p className="label-en">{hasSpokenAudit ? 'Voice transcript audit trail' : 'Text read from the page'}</p>
               </div>
               <button
                 onClick={() => setShowRaw(!showRaw)}

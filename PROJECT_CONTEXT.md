@@ -4,8 +4,8 @@
 > Claude (or any coding agent) to give it full context on what the project is, how it
 > is built, and how every pipeline and module fits together.
 
-Last compiled from source: covers all app routes, API routes, `lib/` pipeline
-modules, components, Supabase migrations, and setup/provisioning scripts.
+Last compiled from source: covers all app/API routes, OCR and voice pipelines,
+components, tests, Supabase migrations, and setup/provisioning scripts.
 
 ---
 
@@ -16,10 +16,11 @@ Registers (GR)** — the official, handwritten student-admission ledgers (જન
 kept by primary schools in Gujarat, India.
 
 The core idea: instead of relying on fragile paper registers (vulnerable to fire,
-flood, termites, and decay), a staff member **photographs a register page**, the system
-**reads the Gujarati handwriting** into structured fields, the staff member
-**verifies/corrects** the extracted data, and the record is saved to a **secure,
-searchable, cloud-backed database** with the original scan attached.
+flood, termites, and decay), a staff member either **photographs a register page** for
+Gujarati OCR/AI extraction or **dictates one English field group at a time**. Both paths
+fill the same review form; the staff member verifies/corrects every value and explicitly
+saves the record to a secure, searchable, cloud-backed database. Scans remain attached;
+voice-only records intentionally have no image and the submitted audio is never stored.
 
 - **Domain language:** Gujarati (with English sub-labels throughout the UI).
 - **Scale target:** small — under ~500 records per school to start; hundreds of rows,
@@ -35,13 +36,13 @@ pipeline test report lives at [`AUDIT_REPORT.md`](AUDIT_REPORT.md).
 
 A GR is an open two-page spread. The extraction code encodes this layout explicitly:
 
-- **Left page — પત્રક ૪ (Patrak 4), "મુખ્ય વિગતો" / main details** — admission side:
+- **Left page — પત્રક ૪ (Patrak 4), "મુખ્ય વિગતો" / main details**:
   register number, full name (`પુરૂં નામ`, written as *given · father's · surname*),
-  religion + caste (`જાત તથા પેટા જાત`), birth place, date of birth, previous school,
-  admission date, admission standard.
-- **Right page — પત્રક ૫ (Patrak 5), "શૈક્ષણિક વિગતો" / academic details** — leaving
-  side: leaving date, standard at leaving, progress & conduct, reason for leaving,
-  leaving-certificate remarks.
+  religion + caste (`જાત તથા પેટા જાત`), birth place, date of birth, and previous school.
+- **Right page — પત્રક ૫ (Patrak 5), "શૈક્ષણિક વિગતો" / academic details**:
+  admission date and admission standard are the first two unstarred columns; the starred
+  leaving section follows with leaving date, standard at leaving, progress & conduct,
+  reason for leaving, and leaving-certificate remarks.
 
 Correctly separating **admission** columns from **leaving** columns is a recurring
 theme in the prompts and sanitization logic, because both pages carry a
@@ -51,19 +52,19 @@ theme in the prompts and sanitization logic, because both pages carry a
 
 ## 2. IMPORTANT: PRD vs. actual implementation (design drift)
 
-The PRD and the shipped code differ on the OCR/extraction approach. **Trust the code.**
+The PRD and the shipped code differ on extraction and entry paths. **Trust the code.**
 
 | Concern | PRD said | Code actually does |
 |---|---|---|
-| OCR provider | Google Cloud Vision (`DOCUMENT_TEXT_DETECTION`) | **Sarvam Document AI** (Vision 1.5, Indic-specialised) is the raw-text anchor, with **OCR.space** as fallback; then a chain of **AI vision/LLM providers** for structuring |
-| Field mapping | "best-effort" regex/heuristic parsing, treated as nice-to-have | A multi-provider **AI extraction chain** (Sarvam Doc AI → Gemini → Mistral → Sarvam text) is primary; the heuristic parser is only a client-side fallback |
-| "AI" in system | None beyond cloud OCR (per the older audit) | Multiple LLM/VLM providers are now first-class in the server pipeline |
+| OCR provider | Google Cloud Vision (`DOCUMENT_TEXT_DETECTION`) | **Sarvam Document AI** (Vision 1.5, Indic-specialised) is the raw-text anchor, with **OCR.space** as fallback; then a chain of **AI vision/LLM providers** structures the row |
+| Field mapping | "best-effort" regex/heuristic parsing, treated as nice-to-have | A multi-provider **AI extraction chain** is primary; the heuristic parser is only a client-side fallback |
+| "AI" in system | None beyond cloud OCR (per the older audit) | Multiple LLM/VLM providers are first-class in the server pipeline |
+| Voice entry | Not specified | **Grouped English (`en-IN`) dictation** covers all 19 fields through Gemini audio, always followed by human review |
 
-The AUDIT_REPORT.md was written at an earlier stage (it states "the only AI is cloud
-OCR"). Since then the shared chain in `lib/ocr-pipeline.ts`, the HTTP adapters in
-`app/api/ocr-test/route.ts` / `app/api/ocr-scan/route.ts`, and the
-`lib/*-extract.ts` / `lib/sarvam-structure.ts` modules were added. When in doubt, the
-`.env.local.example` and these pipeline files reflect the current design.
+`AUDIT_REPORT.md` predates both the shared provider chain and grouped voice entry. Since
+that audit, `lib/ocr-pipeline.ts`, the OCR routes/adapters, `lib/voice-pipeline.ts`,
+`app/api/voice-entry/route.ts`, and their supporting provider modules were added. When in
+doubt, `.env.local.example` and the current pipeline files reflect the shipped design.
 
 ---
 
@@ -75,17 +76,18 @@ OCR"). Since then the shared chain in `lib/ocr-pipeline.ts`, the HTTP adapters i
 | UI runtime | **React 19.2.4**, React DOM 19.2.4 |
 | Language | **TypeScript 5** (strict), path alias `@/*` → repo root |
 | Styling | **Tailwind CSS v4** (`@tailwindcss/postcss`), custom "neumorphic/ledger" design system in `app/globals.css` |
-| Fonts | `next/font/google`: Spectral (display serif), IBM Plex Sans (UI), IBM Plex Mono (ledger figures), Noto Sans + Noto Serif Gujarati |
+| Fonts | `next/font/google`: Spectral, IBM Plex Sans, IBM Plex Mono, Noto Sans + Noto Serif Gujarati |
 | Backend | **Supabase** — Postgres + Auth + Storage + Row Level Security, via `@supabase/supabase-js` |
-| Image processing | **sharp** (auto-orient, grayscale/contrast/upscale preprocessing, JPEG re-encode, two-page split, guided 2×3 tile quality inspection/reconstruction) |
+| Image processing | **sharp** (preprocessing, page split, guided 2×3 tile inspection/reconstruction) |
 | Raw OCR anchor | **Sarvam Document AI** (Vision 1.5) primary; **OCR.space** fallback |
-| AI extraction | **Sarvam Document AI** (schema extract), **Google Gemini** (vision + text), **OpenAI GPT‑5** (vision), **Mistral** (vision), **Sarvam** chat (Gujarati-native text structuring) |
+| AI extraction | **Sarvam Document AI**, **Google Gemini** (vision, text, and grouped audio), **OpenAI GPT‑5**, **Mistral**, and **Sarvam** chat |
 | Analytics | Vercel Analytics + Speed Insights |
-| Tooling | `tsx` (run TS scripts), `postgres` (direct DDL in setup scripts), ESLint 9 |
+| Tooling | `tsx`, `postgres`, ESLint 9, **Vitest 4.1.11** |
 | Hosting target | Vercel |
 
-**npm scripts** (`package.json`): `dev`, `build`, `start`, `lint`. There is **no `test`
-script and no test framework configured**. Lint is **not** wired into build/CI.
+**npm scripts** (`package.json`): `dev`, `build`, `start`, `lint`, `test`, plus platform
+preflight scripts. `npm test` runs Vitest once (`vitest run`). Lint/tests are not yet
+wired into a repository CI workflow.
 
 ---
 
@@ -94,76 +96,77 @@ script and no test framework configured**. Lint is **not** wired into build/CI.
 ```
 digital-gr/
 ├─ AGENTS.md                     # Agent rules (Next.js 16 breaking-changes warning) — READ §12
-├─ CLAUDE.md                     # Just "@AGENTS.md" (imports the rules)
-├─ AUDIT_REPORT.md               # Earlier whole-project audit + pipeline test results
+├─ AUDIT_REPORT.md               # Earlier whole-project audit; some findings predate current code
 ├─ PROJECT_CONTEXT.md            # ← this file
-├─ .env.local.example            # All required environment variables (documented)
+├─ .env.local.example            # Server/provider configuration template
+├─ vitest.config.mts             # Vitest config + server-only alias
 │
 ├─ app/                          # Next.js App Router
 │  ├─ layout.tsx                 # Root layout: fonts, AuthProvider, analytics, metadata
-│  ├─ page.tsx                   # Public bilingual landing page (specimen ledger)
+│  ├─ page.tsx                   # Public bilingual landing page
 │  ├─ not-found.tsx              # 404
 │  ├─ globals.css                # Tailwind v4 + neumorphic/ledger design tokens & classes
 │  ├─ login/page.tsx             # Email/password sign-in (Supabase Auth)
 │  ├─ dashboard/
-│  │  ├─ layout.tsx              # Auth-gated shell: role-based nav, profile menu, mobile tabs
-│  │  ├─ page.tsx                # Home: register stats + recent entries + per-standard tally
+│  │  ├─ layout.tsx              # Auth-gated shell and role-based navigation
+│  │  ├─ page.tsx                # Register stats and recent entries
 │  │  ├─ records/
-│  │  │  ├─ page.tsx             # Record list: search, filter, sort, print
-│  │  │  ├─ new/page.tsx         # Create (wraps GRRecordForm mode="create")
-│  │  │  ├─ compare/page.tsx     # OCR-engine comparison diagnostic (needs OCR_DEBUG_COMPARE)
+│  │  │  ├─ page.tsx             # Search/filter/sort/print records
+│  │  │  ├─ new/page.tsx         # Create via scan or grouped voice entry
+│  │  │  ├─ compare/page.tsx     # OCR-engine comparison diagnostic
+│  │  │  ├─ voice-compare/page.tsx # Gemini audio model comparison diagnostic
 │  │  │  └─ [id]/
-│  │  │     ├─ page.tsx          # Detail: two-page spread view, scan image, delete
-│  │  │     └─ edit/page.tsx     # Edit (wraps GRRecordForm mode="edit")
-│  │  ├─ schools/page.tsx        # super_admin: create schools + provision first admin
-│  │  └─ staff/page.tsx          # school_admin: create/activate/deactivate staff & principals
+│  │  │     ├─ page.tsx          # Detail, optional scan/audit, delete
+│  │  │     └─ edit/page.tsx     # Edit via GRRecordForm
+│  │  ├─ schools/page.tsx        # super_admin school provisioning
+│  │  └─ staff/page.tsx          # school_admin staff/principal management
 │  └─ api/
-│     ├─ ocr-test/route.ts       # Single-image/compare HTTP adapter + health check
-│     ├─ ocr-scan/route.ts       # ★ Authenticated overview + six-tile reconstruction/OCR endpoint
+│     ├─ ocr-test/route.ts       # Single-image/compare adapter + health
+│     ├─ ocr-scan/route.ts       # Authenticated guided reconstruction/OCR
+│     ├─ voice-entry/
+│     │  ├─ route.ts             # Authenticated/rate-limited audio extraction + health/compare
+│     │  └─ route.test.ts        # Route validation/auth/rate-limit/dispatch tests
 │     └─ admin/
-│        ├─ schools/route.ts     # POST create school (super_admin only, service role)
-│        └─ users/route.ts       # POST create user + PATCH activate/deactivate (service role)
+│        ├─ schools/route.ts
+│        └─ users/route.ts
 │
 ├─ components/
-│  ├─ GRRecordForm.tsx           # ★ The GR data model + create/edit/verify form
-│  ├─ GuidedRegisterScanner.tsx  # ★ Mobile overview + six guided close-ups + quality/review flow
-│  └─ ImageUploader.tsx          # Upload-to-Storage widget (per-school folder)
+│  ├─ GRRecordForm.tsx           # ★ Shared 19-field review and explicit-save form
+│  ├─ VoiceEntryRecorder.tsx     # ★ Four-step MediaRecorder/review flow
+│  ├─ GuidedRegisterScanner.tsx  # Mobile overview + six close-ups
+│  └─ ImageUploader.tsx          # Per-school Storage upload widget
 │
 ├─ lib/
 │  ├─ supabase.ts                # Browser Supabase client (anon key)
-│  ├─ auth-context.tsx           # ★ Browser auth/session/profile provider + route protection
-│  ├─ server-auth.ts             # ★ Server bearer verification + active-profile/role authorization
-│  ├─ ocr-types.ts               # Client-safe OCR, compare, scan quality, and response contracts
-│  ├─ ocr-pipeline.ts            # ★ Shared server-only production/compare provider orchestration
-│  ├─ reconstruct-register.ts    # ★ Sharp quality checks + deterministic 2×3 tiled reconstruction
-│  ├─ ocr.ts                     # ★ Raw-text anchor: Sarvam Doc AI digitise, OCR.space fallback + two-page split
-│  ├─ sarvam-doc-ai.ts           # ★ Sarvam Document AI (Vision 1.5): digitise anchor + schema extract
-│  ├─ image-prep.ts              # Mobile-photo preprocessing (grayscale/contrast/upscale) for every reader
-│  ├─ extract-shared.ts          # ★ Shared 19-field contract + FIELD_DESCRIPTIONS, GR-domain prompts, retry, sanitize
-│  ├─ gemini-extract.ts          # Gemini vision + text structuring (model-selectable)
-│  ├─ openai-extract.ts          # OpenAI GPT-5 vision structuring (model-selectable)
-│  ├─ mistral-extract.ts         # Mistral vision structuring
-│  ├─ sarvam-structure.ts        # Sarvam chat text structuring (Gujarati-native, last resort)
-│  ├─ ocr-parser.ts              # Client-side heuristic table parser (FALLBACK) + types
-│  ├─ gujarati.ts                # Gujarati numeral / date / standard formatting helpers
-│  ├─ setup-phase2.ts            # One-time DB bootstrap (tables, users, RLS, seed)
-│  ├─ setup-storage.ts           # One-time Storage bucket + storage RLS policies
-│  └─ setup-phase9.ts            # Adds profiles.is_active column
+│  ├─ auth-context.tsx           # Browser auth/session/profile provider
+│  ├─ server-auth.ts             # Server bearer + active-profile/role authorization
+│  ├─ gr-record-data.ts          # Pure form model and database payload mapper
+│  ├─ ocr-types.ts               # Client-safe OCR/compare/quality contracts
+│  ├─ ocr-pipeline.ts            # Shared server-only OCR provider orchestration
+│  ├─ reconstruct-register.ts    # Sharp quality checks + deterministic tiled reconstruction
+│  ├─ ocr.ts                     # Sarvam raw anchor, OCR.space fallback, page split
+│  ├─ sarvam-doc-ai.ts           # Sarvam digitise + schema extract
+│  ├─ image-prep.ts              # Shared mobile-photo preprocessing
+│  ├─ extract-shared.ts          # Shared 19-field contract, mapper, retry, sanitizer
+│  ├─ gemini-extract.ts          # Gemini vision/text extraction
+│  ├─ openai-extract.ts          # OpenAI vision extraction
+│  ├─ mistral-extract.ts         # Mistral vision extraction
+│  ├─ sarvam-structure.ts        # Sarvam text structuring
+│  ├─ ocr-parser.ts              # Client-side heuristic fallback + shared field types
+│  ├─ voice-types.ts             # Client-safe voice API contracts
+│  ├─ voice-fields.ts            # Four groups + spoken English normalization
+│  ├─ gemini-audio.ts            # Server-only Gemini audio/schema adapter
+│  ├─ voice-pipeline.ts          # Server-only production/compare/health orchestration
+│  ├─ voice-merge.ts             # Client-safe deterministic merge + transcript audit builder
+│  ├─ *.test.ts                  # Co-located Vitest unit tests for voice/data helpers
+│  ├─ gujarati.ts                # Gujarati numeral/date/standard formatting
+│  └─ setup-*.ts                 # One-time DB and Storage bootstrap scripts
 │
-├─ scripts/
-│  ├─ apply-migration.mjs        # Apply a .sql migration file in a transaction
-│  ├─ provision-school.mjs       # Create/repair a school tenant + attach an admin login
-│  └─ verify-tenancy.mjs         # Prove RLS isolation by signing in as real users
-│
-├─ supabase/migrations/
-│  ├─ 20260624_001_create_core_tables.sql
-│  ├─ 20260624_002_rls_policies.sql
-│  ├─ 20260624_003_seed_test_data.sql
-│  ├─ 20260628_004_expand_gr_fields.sql
-│  └─ 20260726_005_schools_rls.sql
-│
+├─ test/server-only.ts           # Empty Vitest shim for Next's server-only marker
+├─ scripts/                      # Migration/provisioning/tenancy/platform checks
+├─ supabase/migrations/          # Ordered schema and RLS migrations
 ├─ assests/                      # (sic) PRD + brochure/ledger PDFs
-├─ Sample-img/                   # Two real Gujarati register scans used for testing
+├─ Sample-img/                   # Real Gujarati register scans used for manual testing
 └─ public/                       # Static SVGs
 ```
 
@@ -173,32 +176,42 @@ digital-gr/
 
 ## 5. Environment variables
 
-All are documented in [`.env.local.example`](.env.local.example). Copy to `.env.local`.
+All variables are documented in [`.env.local.example`](.env.local.example). Copy it to
+`.env.local`; never expose the server-only values to browser code.
 
 **Supabase (required):**
-- `NEXT_PUBLIC_SUPABASE_URL` — project URL (used client + server).
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — anon key for the browser client.
-- `SUPABASE_SERVICE_ROLE_KEY` — **full RLS bypass**; used only by server API routes and setup scripts. OCR routes use it only after validating the caller's bearer token, active profile, role, and school. Server-side only.
-- `SUPABASE_DB_PASSWORD` — Postgres password; setup/migration scripts rebuild a direct `postgresql://…` connection string from it.
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — browser/server project configuration.
+- `SUPABASE_SERVICE_ROLE_KEY` — **full RLS bypass**, server routes and setup scripts only.
+- `SUPABASE_DB_PASSWORD` — direct Postgres setup/migration scripts only.
 
-**Extraction chain (configure as many as possible; Sarvam and/or Gemini strongly recommended):**
-- `SARVAM_API_KEY` — powers **Sarvam Document AI** (Vision 1.5): the **primary raw-text anchor** (`digitise`), the first structured extractor (`sarvam-doc-ai-extract`), *and* the tertiary chat text-structurer. One key, three roles (sent as the `api-subscription-key` header).
-  - optional `SARVAM_DOC_AI_CONTENT_TYPE` (default `handwritten`; one of `printed`|`handwritten`|`mixed` — auto-falls-back to Sarvam's default if the value is rejected)
-  - optional `SARVAM_DOC_AI_MODEL` (default `sarvam-vision-v1`); optional `SARVAM_MODEL` (chat structurer, default `sarvam-30b`)
-- `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`, default `gemini-2.5-flash`; set `gemini-2.5-pro` / `gemini-3.1-pro-preview` for far better handwriting). Free key from Google AI Studio.
-- `OPENAI_API_KEY` (+ optional `OPENAI_MODEL`, default `gpt-5.6`) — OpenAI GPT‑5 vision (paid; top handwriting accuracy).
-- `MISTRAL_API_KEY` (+ optional `MISTRAL_MODEL`, default `mistral-small-latest`) — Mistral vision provider.
-- `OCR_SPACE_API_KEY` — **fallback** raw-OCR anchor, used only when Sarvam Document AI is unset / fails / times out; also feeds the client heuristic parser.
+**OCR extraction providers:**
+- `SARVAM_API_KEY` (+ optional `SARVAM_DOC_AI_CONTENT_TYPE`, `SARVAM_DOC_AI_MODEL`, `SARVAM_MODEL`).
+- `GEMINI_API_KEY` (+ optional vision/text `GEMINI_MODEL`).
+- `OPENAI_API_KEY` (+ optional `OPENAI_MODEL`).
+- `MISTRAL_API_KEY` (+ optional `MISTRAL_MODEL`).
+- `OCR_SPACE_API_KEY` — fallback raw-OCR anchor.
 
-**Extraction tuning (all optional):** `OCR_PREPROCESS` (default on), `OCR_EXTRACTOR_ORDER`
-(production chain order), `OCR_DEBUG_COMPARE` (enable the compare diagnostic),
-`OCR_COMPARE_GEMINI_MODELS` / `OCR_COMPARE_OPENAI_MODELS` (models the compare tool runs).
+**OCR tuning (optional):** `OCR_PREPROCESS`, `OCR_EXTRACTOR_ORDER`,
+`OCR_DEBUG_COMPARE`, `OCR_COMPARE_GEMINI_MODELS`, and `OCR_COMPARE_OPENAI_MODELS`.
 
-If no provider key is set, the endpoint returns only raw OCR text for manual entry.
+**Grouped voice entry:** no new credential is required; the server reuses
+`GEMINI_API_KEY` and never sends it to the client.
+- `GEMINI_AUDIO_MODEL` — production audio model, default `gemini-3.7-flash`.
+- `VOICE_EXTRACTOR_ORDER` — production order, default and only registered v1 key:
+  `gemini-audio`.
+- `VOICE_LANGUAGE` — documented/pinned to `en-IN`; v1 rejects every other language.
+- `VOICE_DEBUG_COMPARE` — enables the paid `?debug=all` path and comparison page. Leave
+  unset/off in production.
+- `VOICE_COMPARE_GEMINI_MODELS` — comma-separated models run in parallel by the voice
+  comparison tool. The default is the configured/default production model plus
+  `gemini-2.5-flash`.
 
-> **Security note:** the service-role key and DB password are highly sensitive. The
-> earlier audit flagged that live secrets had been committed to the working tree — keep
-> real values only in `.env.local` (gitignored) and rotate anything that leaked.
+If no OCR provider key is set, the scan endpoint can still return raw text for manual
+entry. Voice health reports unconfigured, and voice extraction is unavailable, when
+`GEMINI_API_KEY` is absent.
+
+> **Security note:** the service-role key, DB password, and AI keys are sensitive. Keep
+> real values only in `.env.local` (gitignored) and rotate anything that has leaked.
 
 ---
 
@@ -242,9 +255,10 @@ Right-page / academic fields (migration 004):
 `leaving_date` (date), `leaving_reason`, `leaving_standard`, `remarks`.
 
 System fields:
-`id` (uuid PK), `school_id`* (FK → schools, cascade), `image_url` (Storage path),
-`ocr_raw_text` (audit of what OCR read), `created_by` (FK → profiles),
-`created_at`, `updated_at`.
+`id` (uuid PK), `school_id`* (FK → schools, cascade), nullable `image_url` (Storage path;
+`NULL` for voice-only records), nullable `ocr_raw_text` (scan transcription or grouped
+`===== SPOKEN (…) =====` transcript audit), `created_by` (FK → profiles), `created_at`,
+`updated_at`.
 
 (* = required at the form/DB level. Form-required set:
 `gr_number, student_name, fathers_name, surname, date_of_birth, admission_date`.)
@@ -258,7 +272,8 @@ System fields:
 ```
 schools (1) ─── (many) profiles        [role: super_admin/school_admin/staff/principal]
 schools (1) ─── (many) gr_records
-gr_records (1) ─── (1) scanned image    [Storage object at {school_id}/{uuid}.{ext}]
+scanned gr_record ─── optional Storage image [at {school_id}/{uuid}.{ext}]
+voice-only gr_record ─── no image/audio object [transcript audit only]
 profiles (1) ─── (many) gr_records      [created_by]
 ```
 
@@ -299,11 +314,11 @@ These are used inside policies so a policy check can't be spoofed by the client.
   own folder; staff/school_admin can upload/update in their folder; only school_admin
   (and super_admin) can delete.
 
-> Admin and OCR POST routes use the **service-role key** and therefore **bypass RLS by
-> design**. `lib/server-auth.ts` verifies the bearer token and active profile first;
-> OCR is limited to `staff`/`school_admin`, and every stored guided scan is forced into
-> the authenticated caller's school folder. `GET /api/ocr-test` remains a non-billable
-> public health check.
+> Admin routes and guided OCR storage use the **service-role key** and therefore bypass
+> RLS by design. `lib/server-auth.ts` verifies the bearer token and active profile first.
+> OCR and paid voice POST routes are limited to `staff`/`school_admin`; the voice route
+> authorizes and enforces its per-user quota **before parsing the multipart body**.
+> `GET /api/ocr-test` and `GET /api/voice-entry` are public, non-billable health checks.
 
 ---
 
@@ -327,33 +342,78 @@ These are used inside policies so a policy check can't be spoofed by the client.
 
 ---
 
-## 9. ★ The core pipeline: scan → OCR → AI extraction → verify → save
+## 9. ★ Core entry pipelines: scan or voice → verify → save
 
-This is the heart of the app. End-to-end trace:
+The create form has three capture modes that converge on the same 19-field review form:
 
 ```
 Single photo:
 ImageUploader → Storage `{school_id}/{uuid}.{ext}` → POST /api/ocr-test
 
 Guided high-resolution scan:
-GuidedRegisterScanner
-  → overview + six ordered close-ups (2 rows × 3 columns)
-  → authenticated POST /api/ocr-scan
-  → lib/reconstruct-register.ts quality checks + deterministic 4200×2000 JPEG
-  → Storage `{school_id}/guided-....jpg`
+GuidedRegisterScanner → authenticated POST /api/ocr-scan
+  → quality checks + deterministic 4200×2000 reconstruction → school Storage
 
-Both paths
-      ▼
-lib/ocr-pipeline.ts  (shared server-only orchestrator)
-   1) lib/ocr.ts extractText(buffer)         → raw transcription anchor (Sarvam Doc AI digitise, else OCR.space)
-   2) build an ordered list of extraction "attempts" (see below)
-   3) run attempts in order; FIRST that returns ≥1 record wins
-   4) always return the human-readable OCR text alongside the structured records
-      ▼
-GRRecordForm: shows records; if 1 record, auto-applies it; if many, user picks one
-      ▼
-handleSubmit → supabase.from('gr_records').insert/update (RLS-enforced)  → /dashboard/records
+Both scan paths → lib/ocr-pipeline.ts → raw text + structured records
+
+Grouped voice entry:
+VoiceEntryRecorder → four independent utterances → POST /api/voice-entry per utterance
+  → lib/gemini-audio.ts returns { transcript, fields } in the same Gemini response
+  → lib/voice-pipeline.ts sanitizes each group → lib/voice-merge.ts merges once
+
+Every path → GRRecordForm confidence review/manual correction
+  → only the user's explicit submit inserts/updates `gr_records` (RLS-enforced)
 ```
+
+### Grouped English voice entry (`en-IN`)
+
+`components/VoiceEntryRecorder.tsx` guides the user through four schemas that cover each
+of the canonical 19 fields exactly once:
+
+1. **Identity (5):** `gr_number`, `student_name`, `fathers_name`, `mothers_name`, `surname`.
+2. **Birth & community (6):** `date_of_birth`, `dob_in_words`, `birth_place`, `religion`, `caste_category`, `address`.
+3. **Admission (3):** `admission_date`, `admission_standard`, `previous_school`.
+4. **Leaving & notes (5, skippable):** `leaving_date`, `leaving_standard`, `leaving_reason`, `progress_and_conduct`, `remarks`.
+
+For every completed utterance the browser sends one authenticated multipart request to
+`POST /api/voice-entry`; the server sends one inline audio part plus a group-specific JSON
+schema to Gemini `:generateContent`. The resulting JSON contains **both** a faithful
+`transcript` and that group's `fields`, so the audit and extracted values originate in the
+same response. The default model is `gemini-3.7-flash`, configurable independently from
+vision via `GEMINI_AUDIO_MODEL`. The design follows Google's [audio understanding guide](https://ai.google.dev/gemini-api/docs/audio),
+[GenerateContent audio reference](https://ai.google.dev/gemini-api/docs/generate-content/audio),
+and [Node.js Gemini tutorial](https://ai.google.dev/gemini-api/docs/get-started/tutorial?lang=node).
+
+**Endpoint controls:** `authorizeRequest` permits only active `staff` and `school_admin`
+and runs before `req.formData()`. The process-local limiter then allows 12 paid requests
+per user per 60 seconds and returns `429` + `Retry-After`; it is per hot server instance,
+not a distributed/global quota. Inputs are one `audio` file, one known `group`, and
+optional `language=en-IN`; unexpected/duplicate fields are rejected. The cap is 10 MB,
+and base MIME types are limited to WebM, MP4/M4A, MPEG/MP3, WAV, and OGG. Production
+uses the Node.js runtime with a 60-second route duration.
+
+**Sanitation and merge:** spoken English numbers, day-first dates, and standards 1–12 are
+normalized. Names must remain Latin script exactly as spoken; non-Latin output is dropped
+rather than silently transliterated, and every populated name is pinned to **medium
+confidence** for mandatory review. Group schemas prevent cross-group field routing. Partial
+groups are preserved, then `mergeVoiceGroups` performs deterministic group-order merging
+and the admission/leaving ambiguity downgrade **once on the merged record**.
+
+**Human-control and audit guarantees:** extracted values only fill the form; nothing
+auto-saves. Manual edits clear the auto-filled state and later groups do not overwrite
+corrections outside their scope. Re-recording clears/replaces only still-auto-filled values
+from that group. Request-generation, abort, mounted-state, timer, media-track, and object-URL
+guards prevent stale responses or leaked microphone resources. The current transcript per
+group is rebuilt in register order under exact headers such as
+`===== SPOKEN (Identity) =====` and saved through the existing nullable `ocr_raw_text`
+column. Old takes are not retained. Audio is never persisted, no migration is needed, and
+voice-only records save `image_url = NULL`; the detail page handles both values as nullable.
+
+**Comparison diagnostic:** when `VOICE_DEBUG_COMPARE` is explicitly enabled,
+`/dashboard/records/voice-compare` sends the same clip to
+`POST /api/voice-entry?debug=all`. Every model in `VOICE_COMPARE_GEMINI_MODELS` runs in
+parallel (no first-wins) and returns transcript, fields, confidence, latency, and error side
+by side. Keep this flag off in production because all model calls consume quota.
 
 ### Step 0 — Mobile-photo preprocessing (`lib/image-prep.ts`)
 Every reader (the anchor **and** all structured extractors) first runs the image through
@@ -505,15 +565,16 @@ This parser is intentionally lower-accuracy than the AI chain — it exists so t
 never left with nothing to auto-fill from.
 
 ### Step 5 — Verify & save (`components/GRRecordForm.tsx`)
-- Holds the **`GRRecordData`** type (19 GR fields + `image_url` + `ocr_raw_text`) and the
-  bilingual `FIELD_LABELS` (`"ગુજરાતી / English"`).
-- Renders each field with a **confidence dot** (green=high, amber=medium, red=low) when
-  it was auto-filled from extraction; editing a field clears its auto-filled flag.
-- Multi-record pages: if the page has several students, the user selects which one to
-  load into the form; a single record auto-applies.
-- `handleSubmit` builds a payload (trimming, `'' → null` for optionals), then on
-  **create** inserts with `school_id: profile.school_id`, `created_by: profile.id`,
-  `ocr_raw_text`; on **edit** updates by `id`. RLS enforces tenancy on write.
+- Imports the canonical **`GRRecordData`** model and pure payload builder from
+  `lib/gr-record-data.ts`; the form still renders all 19 bilingual labels.
+- Offers **Single photo**, **Guided scan**, and **Voice entry** on create. Every source
+  uses the same field inputs, confidence dots (green/high, amber/medium, red/low),
+  validation, and explicit save button.
+- Editing a populated field clears its auto-filled marker. OCR multi-record pages require
+  record selection; grouped voice results merge into the one in-progress record.
+- `handleSubmit` maps optional blanks to `NULL`, then inserts with the profile's
+  `school_id`/`created_by` or updates by `id`; RLS enforces tenancy. It includes
+  `ocr_raw_text`, and permits a nullable `image_url` for voice-only creation.
 
 ### `components/ImageUploader.tsx`
 Uploads the selected file directly to Storage at `{schoolId}/{uuid}.{ext}` (`upsert:
@@ -531,40 +592,59 @@ confidence-dot, raw-text, and save workflow. The guided endpoint stores the reco
 image directly, avoiding the single-photo path's upload → browser download → API upload
 round trip.
 
+### `components/VoiceEntryRecorder.tsx`
+A client-only, accessible four-step `MediaRecorder` flow embedded in `GRRecordForm`. It
+selects a browser-supported MIME type, submits that actual type, provides playback and
+re-record controls, permits only the leaving group to be skipped, displays transcript and
+extracted values for review, and exposes processing changes to block save while a request
+is active. Native buttons preserve keyboard operation and an `aria-live` region announces
+status/errors, including secure-context, permission, and missing-device remedies. All
+streams, timers, abort controllers, request generations, and object URLs are cleaned up on
+replace/reset/unmount.
+
 ---
 
 ## 10. Feature modules (mapped to routes)
 
 | Module | Where | Notes |
 |---|---|---|
-| Auth & roles | `lib/auth-context.tsx`, `app/login/page.tsx` | Supabase Auth; role drives nav & guards |
-| Tenant isolation | `supabase/migrations/…_002` & `…_005`, `setup-storage.ts` | RLS on profiles, gr_records, schools, storage |
-| Image upload & storage | `components/ImageUploader.tsx` | per-school folder in `gr-images` |
-| Guided tiled scanner | `components/GuidedRegisterScanner.tsx`, `app/api/ocr-scan/route.ts`, `lib/reconstruct-register.ts` | authenticated overview + six close-ups; quality metadata; deterministic 4200×2000 reconstruction |
-| OCR + AI extraction | `lib/ocr-pipeline.ts`, `app/api/ocr-test/route.ts`, `lib/ocr.ts`, `lib/*-extract.ts`, `lib/sarvam-structure.ts`, `lib/extract-shared.ts`, `lib/ocr-parser.ts` | shared production/compare pipeline (§9) |
-| GR record form | `components/GRRecordForm.tsx` | create/edit/verify with confidence dots |
-| Records browse/search | `app/dashboard/records/page.tsx` | search GR/name/father/surname/DOB/std; std + status filters; sort; print; `/` focuses search; Enter jumps to exact GR |
-| Record detail | `app/dashboard/records/[id]/page.tsx` | two-page spread view; signed-URL scan; collapsible raw OCR; delete (school_admin) |
-| Dashboard/home | `app/dashboard/page.tsx` | totals (studying/left/this-week) + per-standard bars from one query |
-| School management | `app/dashboard/schools/page.tsx` + `app/api/admin/schools` | super_admin creates schools & provisions first admin |
-| Staff management | `app/dashboard/staff/page.tsx` + `app/api/admin/users` | school_admin creates staff/principal; activate/deactivate |
+| Auth & roles | `lib/auth-context.tsx`, `lib/server-auth.ts`, `app/login/page.tsx` | Supabase session/profile; role drives guards and navigation |
+| Tenant isolation | migrations `002`/`005`, `setup-storage.ts` | RLS on profiles, records, schools, and storage |
+| Image upload & storage | `components/ImageUploader.tsx` | per-school path in private `gr-images` |
+| Guided tiled scanner | `GuidedRegisterScanner`, `/api/ocr-scan`, `reconstruct-register` | authenticated seven-shot reconstruction and quality metadata |
+| OCR + AI extraction | `lib/ocr-pipeline.ts`, OCR routes, provider adapters | production first-wins and gated compare pipeline (§9) |
+| Grouped voice entry | `VoiceEntryRecorder`, `/api/voice-entry`, `lib/gemini-audio.ts`, `lib/voice-pipeline.ts`, `lib/voice-merge.ts` | four en-IN groups, same-response transcript/fields, human review, no audio storage (§9) |
+| Voice comparison | `/dashboard/records/voice-compare`, `/api/voice-entry?debug=all` | gated, parallel Gemini audio model comparison |
+| GR record form/data | `GRRecordForm.tsx`, `lib/gr-record-data.ts` | shared create/edit/review, confidence state, explicit save, nullable voice source fields |
+| Records browse/search | `/dashboard/records` | substring search, filters, sort, print, shortcuts |
+| Record detail | `/dashboard/records/[id]` | optional signed scan, OCR/spoken audit, delete for school_admin |
+| Dashboard/home | `/dashboard` | aggregate counts and recent entries |
+| School management | `/dashboard/schools`, `/api/admin/schools` | super_admin provisioning |
+| Staff management | `/dashboard/staff`, `/api/admin/users` | school_admin provisioning and activation |
 
 ### Route inventory
-Public: `/` (landing), `/login`, `not-found`.
-Auth-gated under `/dashboard` (role-based nav in `dashboard/layout.tsx`):
+Public: `/` (landing), `/login`, and `not-found`.
+
+Auth-gated under `/dashboard` (role-based navigation in `dashboard/layout.tsx`):
 - `super_admin`: Home, **Schools**.
 - `school_admin`: Home, **Records**, **Staff**.
-- `staff` / `principal`: Home, **Records** (principal is read-only).
-Record routes: `/dashboard/records`, `/dashboard/records/new`,
-`/dashboard/records/[id]`, `/dashboard/records/[id]/edit`.
+- `staff` / `principal`: Home, **Records** (`principal` remains read-only).
 
-### API routes (all server-side, service-role, with explicit role checks)
-- `POST /api/ocr-test` — extraction (multipart `image`); `GET` — health/strategy list.
-- `POST /api/admin/schools` — create school (super_admin only).
-- `POST /api/admin/users` — create auth user + profile (school_admin → staff/principal in
-  own school; super_admin → school_admin). Rolls back the auth user if the profile insert
-  fails. `PATCH /api/admin/users` — school_admin toggles `is_active` (can't touch another
-  school_admin or another school's user).
+Record routes: `/dashboard/records`, `/dashboard/records/new`,
+`/dashboard/records/compare`, `/dashboard/records/voice-compare`,
+`/dashboard/records/[id]`, and `/dashboard/records/[id]/edit`.
+
+### API routes
+- `POST /api/ocr-test` — authenticated single-image extraction; `?debug=all` is gated
+  comparison. `GET` is public non-billable health.
+- `POST /api/ocr-scan` — authenticated overview + six-tile reconstruction/extraction,
+  limited to active `staff`/`school_admin`.
+- `POST /api/voice-entry` — authenticated/rate-limited group audio extraction; gated
+  `?debug=all` comparison; active `staff`/`school_admin` only. `GET` is public
+  non-billable health.
+- `POST /api/admin/schools` — create school (`super_admin` only).
+- `POST /api/admin/users` — create auth user + profile; rolls back the auth user if the
+  profile insert fails. `PATCH` lets a school admin toggle allowed own-school users.
 
 ---
 
@@ -633,52 +713,68 @@ imports `AGENTS.md` (`@AGENTS.md`).
   month-first when parsing.
 - **Tenancy:** always scope queries by `school_id` (RLS enforces it, but the records list
   also filters explicitly as defence-in-depth). Never expose one school's data to another.
-- **Adding a GR field** touches many places: DB migration → `STRING_FIELDS` &
-  prompts in `extract-shared.ts` → `ParsedGRFields` in `ocr-parser.ts` → `GRRecordData`,
-  `FIELD_LABELS`, `PARSEABLE_FIELDS`, payload in `GRRecordForm.tsx` → detail & edit pages.
+- **Adding a GR field** touches many places: DB migration → `STRING_FIELDS` and
+  `FIELD_DESCRIPTIONS` in `extract-shared.ts` → `ParsedGRFields` → `GRRecordData`/payload
+  → form labels/detail/edit. For voice support it must also appear exactly once in
+  `VOICE_FIELD_GROUPS`; tests assert complete 19-field coverage today.
 
-### Known issues / findings (see `AUDIT_REPORT.md` for the full list)
-- **Committed secrets (HIGH):** real Supabase service-role key, DB password, and OCR key
-  had been present on disk — rotate and keep only `.env.local.example` in git.
-- **ESLint (MEDIUM):** `npm run lint` reports pre-existing errors (build still passes):
-  a `Field`/`Entry` component is defined **inside render** in
-  `records/[id]/page.tsx` (React 19 rule); a `setState`-in-`useEffect` and unused symbols
-  in `GRRecordForm.tsx`; several `<img>`-instead-of-`next/image` warnings.
-- **OCR fault-tolerance & two-page split (MEDIUM):** addressed in `lib/ocr.ts`
-  (concurrent dual-pass + sharp page split) — see §9.
-- **Naming:** the production extraction endpoint is `/api/ocr-test` (kept despite the
-  "test" name — `GRRecordForm` depends on it). The assets folder is misspelled `assests/`.
-- **No tests/CI:** there is no test framework, no `test` script, and lint is not enforced
-  in build.
-- Accuracy is ultimately bounded by handwriting quality — the **mandatory human review**
-  step in `GRRecordForm` is the final safety net, by design.
+### Known issues / findings (see `AUDIT_REPORT.md` for older audit history)
+- **Secrets:** real service/provider credentials had previously been present on disk;
+  rotate leaked values and keep live values only in `.env.local`.
+- **No CI yet:** Vitest and `npm test` now exist, but tests/lint/build are not enforced by
+  a checked-in CI workflow.
+- **Voice rate-limit scope:** the 12/user/minute map is process-local. Multiple serverless
+  instances do not share counters; use a distributed store if a global billing guard is
+  required later.
+- **Latin-name search tradeoff:** voice stores names in Latin script as spoken. The records
+  page uses ordinary substring matching, so a Latin voice name does not match an existing
+  Gujarati-script spelling of the same person. This is accepted for v1; no silent
+  transliteration is attempted.
+- **Browser capture:** microphone and live guided camera access require HTTPS or localhost.
+  Device permissions and hardware still need a real browser/session smoke test.
+- **Naming:** the production single-scan endpoint is still `/api/ocr-test`; the assets
+  folder remains misspelled `assests/`.
+- OCR and audio accuracy are bounded by source quality. Mandatory human review in
+  `GRRecordForm` remains the final safety net by design.
 
 ---
 
 ## 13. Quick start (for a new contributor or agent)
 
-```bash
-# 1. Install deps
+```powershell
+# 1. Install dependencies
 npm install
 
-# 2. Configure environment
-cp .env.local.example .env.local   # then fill in real values
+# 2. Configure environment (then fill real values)
+Copy-Item .env.local.example .env.local
 
-# 3. Provision the backend (once), against your Supabase project
-npx tsx lib/setup-phase2.ts        # tables, users, RLS, seed
-npx tsx lib/setup-storage.ts       # gr-images bucket + storage policies
-npx tsx lib/setup-phase9.ts        # profiles.is_active
+# 3. Provision a new Supabase backend once
+npx tsx lib/setup-phase2.ts
+npx tsx lib/setup-storage.ts
+npx tsx lib/setup-phase9.ts
 node scripts/apply-migration.mjs supabase/migrations/20260726_005_schools_rls.sql
 
-# 4. Run the dev server (run manually in your own terminal — don't background it)
+# 4. Run automated verification
+npm test
+npm run lint
+npm run build
+
+# 5. Run the development server manually
 npm run dev                        # http://localhost:3000
 
-# 5. Verify tenant isolation any time
+# 6. Verify tenant isolation when needed
 node scripts/verify-tenancy.mjs
 ```
 
-Sign in with a seeded account (e.g. `staff-a@test.com` / `TestPass123!`), open **New
-entry**, upload a scan from `Sample-img/`, watch the fields auto-fill, verify, and save.
+Sign in with an active `staff` or `school_admin` account and open **New entry**. For the
+scan smoke test, upload a page from `Sample-img/`, review the filled fields, then save. For
+the voice smoke test, use **Voice entry** on **localhost or HTTPS**, grant microphone
+permission, complete/re-record the four groups, confirm medium-confidence names and the
+transcripts, manually correct a value, and explicitly save. Verify the detail page shows a
+spoken audit without requiring a scan image. A logged-in real-browser session is required
+to exercise microphone permissions and end-to-end persistence.
 
-**First files to read:** `app/api/ocr-test/route.ts` → `lib/extract-shared.ts` →
-`lib/ocr.ts` → `components/GRRecordForm.tsx` → `supabase/migrations/…_002_rls_policies.sql`.
+**First files to read:** `app/api/voice-entry/route.ts` → `lib/gemini-audio.ts` →
+`lib/voice-pipeline.ts` → `lib/voice-merge.ts` → `components/VoiceEntryRecorder.tsx` →
+`components/GRRecordForm.tsx`; for scans start at `app/api/ocr-test/route.ts` and
+`lib/ocr-pipeline.ts`.

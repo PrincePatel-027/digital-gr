@@ -450,6 +450,18 @@ select.neu-input {
   box-shadow: var(--shadow-accent);
 }
 
+.neu-btn-secondary {
+  background-color: var(--color-surface-2);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-line-strong));
+  box-shadow: var(--shadow-sm);
+}
+.neu-btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-surface);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+}
+
 .neu-btn-ghost {
   background-color: var(--color-surface);
   color: var(--color-ink);

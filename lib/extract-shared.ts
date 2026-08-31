@@ -54,9 +54,9 @@ export const FIELD_DESCRIPTIONS: Record<keyof ParsedGRFields, string> = {
   previous_school:
     'Previous school & standard admitted from ("કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા"). If the pupil is new, use "નવો".',
   admission_date:
-    'Date of admission to THIS school — the LEFT page column "નિશાળમાં દાખલ થવાની તારીખ", output YYYY-MM-DD. NEVER copy the date of birth here; if the admission column is blank, return "".',
+    'Date of admission to THIS school — the FIRST column on the RIGHT page, "નિશાળમાં દાખલ થવાની તારીખ". Output YYYY-MM-DD. This unstarred admission column appears before the starred leaving columns. NEVER copy the date of birth here; if the admission column is blank, return "".',
   admission_standard:
-    'Standard/class at admission (LEFT page), digits 1-12 only (e.g. "1", "5"). "ધો-5" / "ધોરણ-5" means "5".',
+    'Standard/class at admission — the SECOND column on the RIGHT page, immediately after admission_date and before the starred leaving columns. Digits 1-12 only (e.g. "1", "5"). "ધો-5" / "ધોરણ-5" means "5".',
   progress_and_conduct:
     'Progress & conduct notes ("પ્રગતિ અને વર્તન" / "અભ્યાસ / વર્તણૂંક") — RIGHT page.',
   leaving_date:
@@ -112,21 +112,21 @@ LEFT page (પત્રક ૪), columns in order:
   4. જન્મભૂમિ                 → birth_place
   5. જન્મ તારીખ (ઇસવીસન પ્રમાણે) → date_of_birth
   6. કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા → previous_school
-  7. નિશાળમાં દાખલ થવાની તારીખ → admission_date
-  8. કયા ધોરણ ને કયા વર્ગમાં દાખલ કર્યો → admission_standard
 
-RIGHT page (પત્રક ૫), columns in order — these are all about LEAVING the school
-(their headers are often prefixed with "*"):
-  9.  નિશાળ છોડવાની તારીખ     → leaving_date
+RIGHT page (પત્રક ૫), columns in order:
+  7. નિશાળમાં દાખલ થવાની તારીખ → admission_date (first, unstarred column)
+  8. કયા ધોરણ ને કયા વર્ગમાં દાખલ કર્યો → admission_standard (second, unstarred column)
+  9. નિશાળ છોડવાની તારીખ      → leaving_date (starred leaving section begins here)
   10. નિશાળ છોડયા ત્યારે કયા ધોરણ ને વર્ગમાં હતો → leaving_standard
   11. અભ્યાસ / વર્તણૂંક        → progress_and_conduct
-  12. નિશાળ છોડવાનું કારણ     → leaving_reason
+  12. નિશાળ છોડવાનું કારણ      → leaving_reason
   13. લિવિંગ સર્ટિફીકેટ આપ્યાની તારીખ અને નંબર → remarks
 
-CRITICAL: a date under "છોડવાની તારીખ" is leaving_date, NEVER admission_date, and a
-standard under "છોડયા ત્યારે ... ધોરણ" is leaving_standard, NEVER admission_standard.
-Only columns 7 and 8 may fill admission_date / admission_standard. If the row has no
-value in columns 7-8, leave those fields empty even when other dates exist on the row.
+CRITICAL: admission_date and admission_standard are the first two columns on the RIGHT
+page, before the starred leaving section. A date under "છોડવાની તારીખ" is leaving_date,
+NEVER admission_date. Pair a right-page row only with the left-page row at the SAME
+horizontal height; never shift right-page values to the row above or below. If row
+alignment or a cell is uncertain, return "" rather than borrowing from another row.
 A value like "ધી-5", "ધો-5" or "ધોરણ-5" means the standard is "5".`
 
 const RULES = `Rules — follow these strictly:
@@ -135,6 +135,7 @@ const RULES = `Rules — follow these strictly:
   2a. DATE ORDER: every date in this register is written DAY first — DD/MM/YYYY or DD-MM-YYYY. Convert to YYYY-MM-DD by moving the day to the end. Examples: "06-01-2016" → "2016-01-06"; "08/06 2026" → "2026-06-08"; "8/6 2026" → "2026-06-08". Never read the first number as the month. If a date is missing its year, or is unreadable, return "".
   3. Skip the printed column headers and any blank or "નમુનો" (specimen/sample) row.
   4. Each register row that has its own "રજીસ્ટર નંબર" is a SEPARATE student. Continuation lines with no register number (e.g. a "માતા:" line) belong to the student in the row above.
+  4a. For an open two-page spread, join values across the center gutter by HORIZONTAL ROW POSITION: right-page row N belongs only to left-page row N. Never shift a date, standard or note to an adjacent student. If alignment is uncertain, leave the field empty.
   5. Return ONLY a JSON object of the form {"students": [ ... ]} — no prose, no markdown fences.
   6. NEVER duplicate a value into a field it does not belong to. In particular: do NOT copy date_of_birth into admission_date. If the admission column is blank — or holds something that is not a date, such as a UID, Aadhaar or phone number — then admission_date must be "".
   7. Long digit strings (9+ digits, e.g. 24170601 or 8082220023) are UID/Aadhaar/phone numbers. They are never a date, a standard or a name: put them in remarks or leave them out.
@@ -152,7 +153,7 @@ export function buildExtractionPrompt(ocrText?: string): string {
   if (ocrText && ocrText.trim()) {
     return `${intro}
 
-An OCR engine has already transcribed this page. That transcription is your PRIMARY SOURCE OF TRUTH for spellings, names and digits — the image is only to help you understand which value belongs in which column. Do not replace a name from the transcription with a different name. If the transcription and the image disagree on a name, prefer the transcription.
+The OCR engine's transcription below is a FALLIBLE SECONDARY HINT. The image and its table geometry are the source of truth for row and column placement. Use the transcription only to corroborate characters or digits that are also plausible in the same image cell. OCR may duplicate text, merge neighboring cells, or misread Gujarati handwriting; when it conflicts with the image, use the image if readable, otherwise return "". Never move OCR text into a different row or column just because it looks plausible.
 
 ===== OCR TRANSCRIPTION =====
 ${ocrText.slice(0, 12000)}
@@ -196,19 +197,46 @@ ${RULES}`
 export const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
 
 /**
+ * Total wall-clock budget for one provider call, retries included.
+ *
+ * Node's fetch has no total-response timeout — only a headers timeout of roughly
+ * five minutes — so a provider that accepts the request and then stalls blocks
+ * until the serverless platform kills the entire function ("Vercel Runtime Timeout
+ * Error: Task timed out after 300 seconds"). Every provider here is reached through
+ * fetchWithRetry, so one default bounds them all. 60s matches OCR.space's own
+ * per-engine cap and leaves ample room for a normal vision call.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+
+export function providerTimeoutMs(): number {
+  const configured = Number(process.env.OCR_PROVIDER_TIMEOUT_MS)
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_REQUEST_TIMEOUT_MS
+}
+
+/**
  * fetch() with a small exponential backoff on transient failures. Providers'
  * free tiers routinely answer 429/503, so a couple of retries keeps a single
  * spike from knocking a provider out of the chain.
+ *
+ * Callers that own their own cancellation (lib/gemini-audio.ts) pass `init.signal`
+ * and keep full control. Everyone else gets the budget above, applied ONCE across
+ * all attempts so retries cannot multiply the worst case.
  */
 export async function fetchWithRetry(
   url: string,
   init: RequestInit,
   attempts = 3
 ): Promise<Response> {
+  const timeoutMs = providerTimeoutMs()
+  const budget = init.signal ? null : AbortSignal.timeout(timeoutMs)
+  const request = budget ? { ...init, signal: budget } : init
+
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const res = await fetch(url, init)
+      const res = await fetch(url, request)
       if (RETRYABLE_STATUS.has(res.status) && attempt < attempts) {
         await new Promise((r) => setTimeout(r, 700 * attempt))
         continue
@@ -216,6 +244,14 @@ export async function fetchWithRetry(
       return res
     } catch (err) {
       lastError = err
+      // An abort — caller cancellation or the budget above — is terminal. Retrying
+      // with the same already-aborted signal only adds backoff delay and cannot work.
+      if (request.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        // AbortSignal.timeout rejects with a TimeoutError DOMException, whose message
+        // names no provider. Replace it with something a warning string can carry.
+        if (budget?.aborted) throw new Error(`provider timed out after ${timeoutMs} ms`)
+        throw err
+      }
       if (attempt < attempts) {
         await new Promise((r) => setTimeout(r, 700 * attempt))
         continue
@@ -236,6 +272,27 @@ const DATE_FIELDS: (keyof ParsedGRFields)[] = ['date_of_birth', 'admission_date'
 const STANDARD_FIELDS: (keyof ParsedGRFields)[] = ['admission_standard', 'leaving_standard']
 const NAME_FIELDS: (keyof ParsedGRFields)[] = ['student_name', 'fathers_name', 'mothers_name', 'surname']
 
+function toWesternDigits(value: string): string {
+  return value
+    .replace(/[૦-૯]/g, (digit) => String(digit.charCodeAt(0) - '૦'.charCodeAt(0)))
+    .replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - '०'.charCodeAt(0)))
+}
+
+function normalizeStructuredDate(value: string): string | null {
+  const normalized = toWesternDigits(value).trim()
+  const iso = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(normalized)
+  const dayFirst = /^(\d{1,2})[-/.](\d{1,2})(?:[-/.]|\s+)(\d{4})$/.exec(normalized)
+  const parts = iso
+    ? [iso[1], iso[2], iso[3]]
+    : dayFirst
+      ? [dayFirst[3], dayFirst[2], dayFirst[1]]
+      : null
+  if (!parts) return null
+
+  const candidate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
+  return isValidIsoDate(candidate) ? candidate : null
+}
+
 /** True only for a real calendar date in YYYY-MM-DD form. */
 function isValidIsoDate(v: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v)
@@ -246,6 +303,15 @@ function isValidIsoDate(v: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d
 }
 
+export interface ParsedRecordOptions {
+  /** Restrict mapping to a server-owned subset, such as one voice group. */
+  allowedFields?: readonly (keyof ParsedGRFields)[]
+  /** OCR collections require an identifying field; partial voice groups do not. */
+  requireIdentity?: boolean
+  /** Run the OCR admission/leaving-side ambiguity downgrade. */
+  downgradeAdmissionLeavingAmbiguity?: boolean
+}
+
 /**
  * Deterministic clean-up of whatever a model returned.
  *
@@ -254,11 +320,19 @@ function isValidIsoDate(v: string): boolean {
  * field prompts the user to fill it in, whereas a plausible-but-wrong value gets
  * silently saved into the permanent record.
  */
-function sanitizeRecord(rec: ParsedGRFields): ParsedGRFields {
-  // Dates must be real ISO dates.
+function sanitizeRecord(
+  rec: ParsedGRFields,
+  downgradeAdmissionLeavingAmbiguity = true
+): ParsedGRFields {
+  // Normalize provider dates from ISO or full-year day-first register notation.
+  // Gujarati/Devanagari digits are converted before validation; ambiguous two-digit
+  // years are dropped rather than guessed.
   for (const f of DATE_FIELDS) {
-    const v = rec[f]?.value
-    if (v && !isValidIsoDate(v)) delete rec[f]
+    const field = rec[f]
+    if (!field) continue
+    const normalized = normalizeStructuredDate(field.value)
+    if (!normalized) delete rec[f]
+    else rec[f] = { value: normalized, confidence: field.confidence }
   }
 
   // A pupil is never admitted on their date of birth — that pattern means the model
@@ -272,45 +346,79 @@ function sanitizeRecord(rec: ParsedGRFields): ParsedGRFields {
     delete rec.leaving_date
   }
 
-  // A standard is a small number: keep 1-12, else drop. ("ધો-5" → "5")
+  // A standard is a small number. Accept one numeric group (optionally surrounded by
+  // a label/class marker), but reject dates and other contaminated multi-number text.
   for (const f of STANDARD_FIELDS) {
-    const v = rec[f]?.value
-    if (!v) continue
-    const digits = v.match(/\d{1,2}/)
-    const n = digits ? Number(digits[0]) : NaN
-    if (!digits || Number.isNaN(n) || n < 1 || n > 12) delete rec[f]
-    else rec[f] = { value: String(n), confidence: rec[f]!.confidence }
+    const field = rec[f]
+    if (!field) continue
+    const groups = toWesternDigits(field.value).match(/\d+/g)
+    const n = groups?.length === 1 ? Number(groups[0]) : NaN
+    if (!groups || groups.length !== 1 || groups[0].length > 2 || Number.isNaN(n) || n < 1 || n > 12) {
+      delete rec[f]
+    } else {
+      rec[f] = { value: String(n), confidence: field.confidence }
+    }
   }
 
   // Names never contain long digit runs (UID / Aadhaar / phone leaking across).
   for (const f of NAME_FIELDS) {
     const v = rec[f]?.value
-    if (v && /\d{5,}/.test(v)) delete rec[f]
+    if (v && /\d{5,}/.test(toWesternDigits(v))) delete rec[f]
   }
 
   // A GR number is a register index, not an identity number.
-  const gr = rec.gr_number?.value
-  if (gr && /^\d{9,}$/.test(gr)) delete rec.gr_number
-
-  // Admission-vs-leaving ambiguity: OCR flattens the two-page table, so when a row
-  // carries only ONE date/standard pair it cannot be proven which side it came from.
-  // Flag those as medium confidence so the UI shows an amber dot and the operator
-  // verifies them, rather than presenting a coin-flip as certain.
-  const hasAdmissionDate = !!rec.admission_date?.value
-  const hasLeavingDate = !!rec.leaving_date?.value
-  if (hasAdmissionDate !== hasLeavingDate) {
-    for (const f of ['admission_date', 'leaving_date'] as const) {
-      if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
-    }
-  }
-  const hasAdmissionStd = !!rec.admission_standard?.value
-  const hasLeavingStd = !!rec.leaving_standard?.value
-  if (hasAdmissionStd !== hasLeavingStd) {
-    for (const f of STANDARD_FIELDS) {
-      if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
-    }
+  const gr = rec.gr_number
+  if (gr) {
+    const normalized = toWesternDigits(gr.value).trim()
+    if (!/^\d{1,8}$/.test(normalized)) delete rec.gr_number
+    else rec.gr_number = { value: normalized, confidence: gr.confidence }
   }
 
+  // Admission-vs-leaving ambiguity is an OCR concern. Group-scoped voice mapping
+  // disables it for each partial result, then the merged record may opt in once.
+  if (downgradeAdmissionLeavingAmbiguity) {
+    const hasAdmissionDate = !!rec.admission_date?.value
+    const hasLeavingDate = !!rec.leaving_date?.value
+    if (hasAdmissionDate !== hasLeavingDate) {
+      for (const f of ['admission_date', 'leaving_date'] as const) {
+        if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
+      }
+    }
+    const hasAdmissionStd = !!rec.admission_standard?.value
+    const hasLeavingStd = !!rec.leaving_standard?.value
+    if (hasAdmissionStd !== hasLeavingStd) {
+      for (const f of STANDARD_FIELDS) {
+        if (rec[f]) rec[f] = { value: rec[f]!.value, confidence: 'medium' }
+      }
+    }
+  }
+
+  return rec
+}
+
+/**
+ * Convert one provider object into a sanitized record. Voice groups use this seam
+ * with `requireIdentity: false` so Admission/Leaving-only results are not dropped,
+ * and defer the OCR side-ambiguity heuristic until group merge.
+ */
+export function toParsedRecord(
+  student: unknown,
+  confidence: ParsedField['confidence'] = 'high',
+  options: ParsedRecordOptions = {}
+): ParsedGRFields | null {
+  if (!student || typeof student !== 'object') return null
+
+  const src = student as Record<string, unknown>
+  const rec: ParsedGRFields = {}
+  const allowedFields = options.allowedFields ?? STRING_FIELDS
+  for (const fieldName of allowedFields) {
+    const field = toField(src[fieldName], confidence)
+    if (field) rec[fieldName] = field
+  }
+
+  sanitizeRecord(rec, options.downgradeAdmissionLeavingAmbiguity ?? true)
+  if (Object.keys(rec).length === 0) return null
+  if ((options.requireIdentity ?? true) && !rec.student_name && !rec.gr_number) return null
   return rec
 }
 
@@ -325,17 +433,9 @@ export function toParsedRecords(
 ): ParsedGRFields[] {
   const list = Array.isArray(students) ? students : []
   const records: ParsedGRFields[] = []
-  for (const s of list) {
-    if (!s || typeof s !== 'object') continue
-    const src = s as Record<string, unknown>
-    const rec: ParsedGRFields = {}
-    for (const f of STRING_FIELDS) {
-      const field = toField(src[f], confidence)
-      if (field) rec[f] = field
-    }
-    sanitizeRecord(rec)
-    // Keep only records that carry at least a name or a GR number — drops empties.
-    if (rec.student_name || rec.gr_number) records.push(rec)
+  for (const student of list) {
+    const record = toParsedRecord(student, confidence)
+    if (record) records.push(record)
   }
   return records
 }
