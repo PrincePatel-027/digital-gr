@@ -2,7 +2,7 @@
  * Apply a SQL migration file to the Supabase Postgres database.
  *
  * Usage:
- *   node scripts/apply-migration.mjs supabase/migrations/20260726_005_schools_rls.sql
+ *   node scripts/apply-migration.mjs supabase/migrations/20260726000500_schools_rls.sql
  *
  * Connects directly with SUPABASE_DB_PASSWORD (same approach as lib/setup-phase2.ts).
  * Statements are run inside a single transaction, so a failure rolls everything back

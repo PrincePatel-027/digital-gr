@@ -248,32 +248,58 @@ async function main() {
   console.log('🔒 Step 6: Setting up Row Level Security...')
 
   await runSQL(`
-    CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS user_role AS $$
+    CREATE OR REPLACE FUNCTION public.get_my_role()
+    RETURNS public.user_role
+    LANGUAGE sql
+    SECURITY DEFINER
+    STABLE
+    SET search_path = ''
+    AS $$
       SELECT role FROM public.profiles WHERE id = auth.uid();
-    $$ LANGUAGE sql SECURITY DEFINER STABLE;
+    $$;
   `, 'Function: get_my_role()')
 
   await runSQL(`
-    CREATE OR REPLACE FUNCTION public.get_my_school_id() RETURNS UUID AS $$
+    CREATE OR REPLACE FUNCTION public.get_my_school_id()
+    RETURNS UUID
+    LANGUAGE sql
+    SECURITY DEFINER
+    STABLE
+    SET search_path = ''
+    AS $$
       SELECT school_id FROM public.profiles WHERE id = auth.uid();
-    $$ LANGUAGE sql SECURITY DEFINER STABLE;
+    $$;
   `, 'Function: get_my_school_id()')
 
-  await runSQL(`ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;`, 'Enable RLS: profiles')
-  await runSQL(`ALTER TABLE gr_records ENABLE ROW LEVEL SECURITY;`, 'Enable RLS: gr_records')
+  await runSQL(`ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;`, 'Enable RLS: profiles')
+  await runSQL(`ALTER TABLE public.gr_records ENABLE ROW LEVEL SECURITY;`, 'Enable RLS: gr_records')
 
-  // Drop + recreate policies (idempotent)
+  await runSQL(`
+    REVOKE ALL ON TABLE public.profiles FROM anon;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.profiles FROM authenticated;
+    GRANT SELECT ON TABLE public.profiles TO authenticated;
+  `, 'Restrict profile table privileges')
+
+  const obsoleteProfilePolicies = [
+    'profiles_super_admin_all',
+    'profiles_school_admin_insert',
+    'profiles_school_admin_update',
+    'profiles_school_admin_delete',
+  ]
+
+  for (const name of obsoleteProfilePolicies) {
+    await runSQL(`DROP POLICY IF EXISTS ${name} ON public.profiles;`, `Drop: ${name}`)
+  }
+
+  // Drop + recreate active policies (idempotent)
   const policies = [
-    { table: 'profiles', name: 'profiles_super_admin_all', sql: `CREATE POLICY profiles_super_admin_all ON profiles FOR ALL USING (get_my_role() = 'super_admin') WITH CHECK (get_my_role() = 'super_admin');` },
-    { table: 'profiles', name: 'profiles_select_own_school', sql: `CREATE POLICY profiles_select_own_school ON profiles FOR SELECT USING (school_id = get_my_school_id() OR id = auth.uid());` },
-    { table: 'profiles', name: 'profiles_school_admin_insert', sql: `CREATE POLICY profiles_school_admin_insert ON profiles FOR INSERT WITH CHECK (get_my_role() = 'school_admin' AND school_id = get_my_school_id() AND school_id IS NOT NULL);` },
-    { table: 'profiles', name: 'profiles_school_admin_update', sql: `CREATE POLICY profiles_school_admin_update ON profiles FOR UPDATE USING (get_my_role() = 'school_admin' AND school_id = get_my_school_id()) WITH CHECK (get_my_role() = 'school_admin' AND school_id = get_my_school_id());` },
-    { table: 'profiles', name: 'profiles_school_admin_delete', sql: `CREATE POLICY profiles_school_admin_delete ON profiles FOR DELETE USING (get_my_role() = 'school_admin' AND school_id = get_my_school_id() AND id != auth.uid());` },
-    { table: 'gr_records', name: 'gr_records_super_admin_all', sql: `CREATE POLICY gr_records_super_admin_all ON gr_records FOR ALL USING (get_my_role() = 'super_admin') WITH CHECK (get_my_role() = 'super_admin');` },
-    { table: 'gr_records', name: 'gr_records_select_own_school', sql: `CREATE POLICY gr_records_select_own_school ON gr_records FOR SELECT USING (school_id = get_my_school_id());` },
-    { table: 'gr_records', name: 'gr_records_insert_own_school', sql: `CREATE POLICY gr_records_insert_own_school ON gr_records FOR INSERT WITH CHECK (get_my_role() IN ('staff', 'school_admin') AND school_id = get_my_school_id());` },
-    { table: 'gr_records', name: 'gr_records_update_own_school', sql: `CREATE POLICY gr_records_update_own_school ON gr_records FOR UPDATE USING (get_my_role() IN ('staff', 'school_admin') AND school_id = get_my_school_id()) WITH CHECK (get_my_role() IN ('staff', 'school_admin') AND school_id = get_my_school_id());` },
-    { table: 'gr_records', name: 'gr_records_delete_own_school', sql: `CREATE POLICY gr_records_delete_own_school ON gr_records FOR DELETE USING (get_my_role() = 'school_admin' AND school_id = get_my_school_id());` },
+    { table: 'public.profiles', name: 'profiles_super_admin_select', sql: `CREATE POLICY profiles_super_admin_select ON public.profiles FOR SELECT USING (public.get_my_role() = 'super_admin');` },
+    { table: 'public.profiles', name: 'profiles_select_own_school', sql: `CREATE POLICY profiles_select_own_school ON public.profiles FOR SELECT USING (school_id = public.get_my_school_id() OR id = auth.uid());` },
+    { table: 'public.gr_records', name: 'gr_records_super_admin_all', sql: `CREATE POLICY gr_records_super_admin_all ON public.gr_records FOR ALL USING (public.get_my_role() = 'super_admin') WITH CHECK (public.get_my_role() = 'super_admin');` },
+    { table: 'public.gr_records', name: 'gr_records_select_own_school', sql: `CREATE POLICY gr_records_select_own_school ON public.gr_records FOR SELECT USING (school_id = public.get_my_school_id());` },
+    { table: 'public.gr_records', name: 'gr_records_insert_own_school', sql: `CREATE POLICY gr_records_insert_own_school ON public.gr_records FOR INSERT WITH CHECK (public.get_my_role() IN ('staff', 'school_admin') AND school_id = public.get_my_school_id());` },
+    { table: 'public.gr_records', name: 'gr_records_update_own_school', sql: `CREATE POLICY gr_records_update_own_school ON public.gr_records FOR UPDATE USING (public.get_my_role() IN ('staff', 'school_admin') AND school_id = public.get_my_school_id()) WITH CHECK (public.get_my_role() IN ('staff', 'school_admin') AND school_id = public.get_my_school_id());` },
+    { table: 'public.gr_records', name: 'gr_records_delete_own_school', sql: `CREATE POLICY gr_records_delete_own_school ON public.gr_records FOR DELETE USING (public.get_my_role() = 'school_admin' AND school_id = public.get_my_school_id());` },
   ]
 
   for (const p of policies) {
@@ -293,7 +319,7 @@ async function main() {
   console.log('     • 2 test schools (A and B)')
   console.log('     • 7 auth users + 7 profiles')
   console.log('     • 2 sample GR records')
-  console.log('     • 10 RLS policies + 2 helper functions')
+  console.log('     • 7 RLS policies + 2 helper functions')
   console.log('')
   console.log(`  🔑 All test users share password: ${TEST_PASSWORD}`)
   console.log('')

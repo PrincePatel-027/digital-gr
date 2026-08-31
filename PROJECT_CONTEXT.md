@@ -651,26 +651,31 @@ Record routes: `/dashboard/records`, `/dashboard/records/new`,
 ## 11. Database migrations, setup & provisioning scripts
 
 ### Migrations (`supabase/migrations/`) — apply in order
-1. **001 create core tables** — `user_role` enum; `schools`, `profiles`, `gr_records`
-   (17 initial columns incl. `mothers_name`, `caste_category`, `address`,
-   `previous_school`); indexes; `updated_at` trigger. RLS **not** enabled here.
-2. **002 rls policies** — `get_my_role()` / `get_my_school_id()` helpers; enables RLS on
-   `profiles` and `gr_records`; all role policies (§7).
-3. **003 seed test data** — manual template: 2 schools (A/B) + 7 users; requires you to
-   paste real `auth.users` UUIDs (superseded in practice by `setup-phase2.ts`).
-4. **004 expand gr fields** — adds the 9 extra columns (religion, dob_in_words,
-   birth_place, admission_standard, progress_and_conduct, leaving_date, leaving_reason,
-   leaving_standard, remarks). All nullable.
-5. **005 schools rls** — enables RLS on `schools` (fixes the cross-tenant school listing
-   leak).
+1. **20260624000100 create/adopt core tables** — validates or creates the exact
+   `user_role` enum; creates `schools`, `profiles`, and `gr_records`; includes
+   `profiles.is_active`; creates indexes and the `updated_at` trigger. Existing objects
+   from the legacy setup script are adopted without dropping data.
+2. **20260624000200 RLS policies** — creates the role/school helper functions; enables
+   RLS on `profiles` and `gr_records`; safely recreates all role policies (§7).
+3. **20260628000400 expand GR fields** — adds the 9 extra columns (religion,
+   dob_in_words, birth_place, admission_standard, progress_and_conduct, leaving_date,
+   leaving_reason, leaving_standard, remarks). All nullable.
+4. **20260726000500 schools RLS** — enables RLS on `schools` (fixes the cross-tenant
+   school listing leak).
 
-> `profiles.is_active` is **not** in a migration — it is added by `lib/setup-phase9.ts`.
-> If you rebuild the DB from migrations alone, add this column too.
+Migration filenames use unique 14-digit versions so Supabase Preview and `db push` can
+track them independently. `supabase/manual/seed_test_data.sql` is a manual template that
+requires real `auth.users` UUIDs; it is deliberately outside `supabase/migrations` and is
+never executed automatically.
 
 ### One-time setup scripts (`lib/setup-*.ts`, run with `npx tsx`)
-- **`setup-phase2.ts`** — idempotent full bootstrap: creates tables/enum/indexes/trigger,
+Run `supabase db push` first so schema changes are recorded in Supabase migration history.
+These scripts are retained for test users/data and storage provisioning; they are not a
+replacement for migrations.
+
+- **`setup-phase2.ts`** — legacy idempotent bootstrap: verifies/creates the core objects,
   2 test schools (UUIDs `a0000…0001` / `b0000…0002`), **7 test auth users** (shared
-  password `TestPass123!`) + profiles, 2 sample GR records, and all 10 RLS policies +
+  password `TestPass123!`) + profiles, 2 sample GR records, and all 7 RLS policies +
   helpers. Connects to Postgres directly using `SUPABASE_DB_PASSWORD`.
 - **`setup-storage.ts`** — creates the private `gr-images` bucket (10 MB, MIME allow-list)
   and the 5 storage RLS policies keyed on the `{school_id}/` path prefix.
@@ -748,21 +753,22 @@ npm install
 # 2. Configure environment (then fill real values)
 Copy-Item .env.local.example .env.local
 
-# 3. Provision a new Supabase backend once
+# 3. Apply canonical database migrations before any setup scripts
+supabase db push
+
+# 4. Optionally provision test users/data and storage once
 npx tsx lib/setup-phase2.ts
 npx tsx lib/setup-storage.ts
-npx tsx lib/setup-phase9.ts
-node scripts/apply-migration.mjs supabase/migrations/20260726_005_schools_rls.sql
 
-# 4. Run automated verification
+# 5. Run automated verification
 npm test
 npm run lint
 npm run build
 
-# 5. Run the development server manually
+# 6. Run the development server manually
 npm run dev                        # http://localhost:3000
 
-# 6. Verify tenant isolation when needed
+# 7. Verify tenant isolation when needed
 node scripts/verify-tenancy.mjs
 ```
 

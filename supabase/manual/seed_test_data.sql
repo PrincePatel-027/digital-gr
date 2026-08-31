@@ -1,6 +1,9 @@
 -- ============================================================
 -- Task 2.2 — Seed data: 2 test schools + 7 test users
 -- ============================================================
+-- ============================================================
+-- Manual test-data template (not an automatic Supabase migration or seed)
+-- ============================================================
 -- INSTRUCTIONS:
 --   1. Run this in the Supabase SQL Editor AFTER running the
 --      two migration files (core tables + RLS policies).

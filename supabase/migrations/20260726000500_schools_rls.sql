@@ -16,22 +16,22 @@
 --   the service role key and therefore bypasses RLS — provisioning still works.
 -- ============================================================
 
-ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.schools ENABLE ROW LEVEL SECURITY;
 
 -- Idempotent: drop before create so this migration can be re-run safely.
-DROP POLICY IF EXISTS schools_super_admin_all ON schools;
-DROP POLICY IF EXISTS schools_select_own      ON schools;
+DROP POLICY IF EXISTS schools_super_admin_all ON public.schools;
+DROP POLICY IF EXISTS schools_select_own      ON public.schools;
 
 -- 1. super_admin: full access to every school
 CREATE POLICY schools_super_admin_all
-  ON schools
+  ON public.schools
   FOR ALL
-  USING      (get_my_role() = 'super_admin')
-  WITH CHECK (get_my_role() = 'super_admin');
+  USING      (public.get_my_role() = 'super_admin')
+  WITH CHECK (public.get_my_role() = 'super_admin');
 
 -- 2. Everyone else: read only the school they belong to.
 --    This is what the dashboard header/profile join relies on.
 CREATE POLICY schools_select_own
-  ON schools
+  ON public.schools
   FOR SELECT
-  USING (id = get_my_school_id());
+  USING (id = public.get_my_school_id());
