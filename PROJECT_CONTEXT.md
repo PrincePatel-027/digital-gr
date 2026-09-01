@@ -17,10 +17,12 @@ kept by primary schools in Gujarat, India.
 
 The core idea: instead of relying on fragile paper registers (vulnerable to fire,
 flood, termites, and decay), a staff member either **photographs a register page** for
-Gujarati OCR/AI extraction or **dictates one English field group at a time**. Both paths
-fill the same review form; the staff member verifies/corrects every value and explicitly
-saves the record to a secure, searchable, cloud-backed database. Scans remain attached;
-voice-only records intentionally have no image and the submitted audio is never stored.
+Gujarati OCR/AI extraction or uses **English voice entry**: either four guided groups for
+one student or one free-form recording for several students. Every path requires the
+staff member to verify/correct values and explicitly save them to a secure, searchable,
+cloud-backed database. Multi-student voice results receive an editable batch review and
+are inserted sequentially so one bad row does not roll back successful rows. Scans remain
+attached; voice-only records intentionally have no image and submitted audio is never stored.
 
 - **Domain language:** Gujarati (with English sub-labels throughout the UI).
 - **Scale target:** small — under ~500 records per school to start; hundreds of rows,
@@ -59,7 +61,7 @@ The PRD and the shipped code differ on extraction and entry paths. **Trust the c
 | OCR provider | Google Cloud Vision (`DOCUMENT_TEXT_DETECTION`) | **Sarvam Document AI** (Vision 1.5, Indic-specialised) is the raw-text anchor, with **OCR.space** as fallback; then a chain of **AI vision/LLM providers** structures the row |
 | Field mapping | "best-effort" regex/heuristic parsing, treated as nice-to-have | A multi-provider **AI extraction chain** is primary; the heuristic parser is only a client-side fallback |
 | "AI" in system | None beyond cloud OCR (per the older audit) | Multiple LLM/VLM providers are first-class in the server pipeline |
-| Voice entry | Not specified | **Grouped English (`en-IN`) dictation** covers all 19 fields through Gemini audio, always followed by human review |
+| Voice entry | Not specified | **English (`en-IN`) dictation** supports the unchanged four-group single-student flow plus one-recording multi-student segmentation, editable batch review, and explicit sequential saves through Gemini audio |
 
 `AUDIT_REPORT.md` predates both the shared provider chain and grouped voice entry. Since
 that audit, `lib/ocr-pipeline.ts`, the OCR routes/adapters, `lib/voice-pipeline.ts`,
@@ -131,8 +133,11 @@ digital-gr/
 │        └─ users/route.ts
 │
 ├─ components/
-│  ├─ GRRecordForm.tsx           # ★ Shared 19-field review and explicit-save form
-│  ├─ VoiceEntryRecorder.tsx     # ★ Four-step MediaRecorder/review flow
+│  ├─ GRRecordForm.tsx           # ★ Shared single review + multi batch orchestration
+│  ├─ VoiceEntryRecorder.tsx     # ★ Single/Multiple voice-mode shell
+│  ├─ GroupedVoiceEntryRecorder.tsx # Unchanged four-group single-student recorder
+│  ├─ MultiVoiceEntryRecorder.tsx # One-recording multi-student capture/extraction
+│  ├─ VoiceBatchReview.tsx       # Provider-neutral editable row review/status UI
 │  ├─ GuidedRegisterScanner.tsx  # Mobile overview + six close-ups
 │  └─ ImageUploader.tsx          # Per-school Storage upload widget
 │
@@ -157,7 +162,8 @@ digital-gr/
 │  ├─ voice-fields.ts            # Four groups + spoken English normalization
 │  ├─ gemini-audio.ts            # Server-only Gemini audio/schema adapter
 │  ├─ voice-pipeline.ts          # Server-only production/compare/health orchestration
-│  ├─ voice-merge.ts             # Client-safe deterministic merge + transcript audit builder
+│  ├─ voice-merge.ts             # Client-safe deterministic single-group merge/audit builder
+│  ├─ gr-record-batch.ts         # Provider-neutral validation/preflight/sequential row saves
 │  ├─ *.test.ts                  # Co-located Vitest unit tests for voice/data helpers
 │  ├─ gujarati.ts                # Gujarati numeral/date/standard formatting
 │  └─ setup-*.ts                 # One-time DB and Storage bootstrap scripts
@@ -194,12 +200,15 @@ All variables are documented in [`.env.local.example`](.env.local.example). Copy
 **OCR tuning (optional):** `OCR_PREPROCESS`, `OCR_EXTRACTOR_ORDER`,
 `OCR_DEBUG_COMPARE`, `OCR_COMPARE_GEMINI_MODELS`, and `OCR_COMPARE_OPENAI_MODELS`.
 
-**Grouped voice entry:** no new credential is required; the server reuses
-`GEMINI_API_KEY` and never sends it to the client.
+**English voice entry (single and multi):** no new credential is required; the server
+reuses `GEMINI_API_KEY` and never sends it to the client.
 - `GEMINI_AUDIO_MODEL` — production audio model, default `gemini-3.7-flash`.
 - `VOICE_EXTRACTOR_ORDER` — production order, default and only registered v1 key:
   `gemini-audio`.
 - `VOICE_LANGUAGE` — documented/pinned to `en-IN`; v1 rejects every other language.
+- `VOICE_MAX_ENTRIES` — maximum accepted expected-count hint and client review batch,
+  default `10` and clamped to `1–10`. The UI recommends at most 6 per recording for
+  stronger segmentation.
 - `VOICE_DEBUG_COMPARE` — enables the paid `?debug=all` path and comparison page. Leave
   unset/off in production.
 - `VOICE_COMPARE_GEMINI_MODELS` — comma-separated models run in parallel by the voice
@@ -256,9 +265,10 @@ Right-page / academic fields (migration 004):
 
 System fields:
 `id` (uuid PK), `school_id`* (FK → schools, cascade), nullable `image_url` (Storage path;
-`NULL` for voice-only records), nullable `ocr_raw_text` (scan transcription or grouped
-`===== SPOKEN (…) =====` transcript audit), `created_by` (FK → profiles), `created_at`,
-`updated_at`.
+`NULL` for voice-only records), nullable `ocr_raw_text` (scan transcription, grouped
+`===== SPOKEN (…) =====` audit, or the same global
+`===== SPOKEN (Multiple entries) =====` transcript on every row in a voice batch),
+`created_by` (FK → profiles), `created_at`, `updated_at`.
 
 (* = required at the form/DB level. Form-required set:
 `gr_number, student_name, fathers_name, surname, date_of_birth, admission_date`.)
@@ -356,64 +366,80 @@ GuidedRegisterScanner → authenticated POST /api/ocr-scan
 
 Both scan paths → lib/ocr-pipeline.ts → raw text + structured records
 
-Grouped voice entry:
-VoiceEntryRecorder → four independent utterances → POST /api/voice-entry per utterance
-  → lib/gemini-audio.ts returns { transcript, fields } in the same Gemini response
-  → lib/voice-pipeline.ts sanitizes each group → lib/voice-merge.ts merges once
+Voice entry (English `en-IN`):
+VoiceEntryRecorder mode shell
+  ├─ Single entry → GroupedVoiceEntryRecorder → four independent requests
+  │    → { mode: 'single', transcript, fields } → deterministic group merge
+  └─ Multiple entries → MultiVoiceEntryRecorder → one free-form request
+       → { mode: 'multi', transcript, students[] } → VoiceBatchReview
+       → one collision preflight + explicit sequential inserts
 
-Every path → GRRecordForm confidence review/manual correction
-  → only the user's explicit submit inserts/updates `gr_records` (RLS-enforced)
+Every path → human confidence review/manual correction
+  → only an explicit user action inserts/updates `gr_records` (RLS-enforced)
 ```
 
-### Grouped English voice entry (`en-IN`)
+### English voice entry: single and multiple (`en-IN`)
 
-`components/VoiceEntryRecorder.tsx` guides the user through four schemas that cover each
-of the canonical 19 fields exactly once:
+The **Single entry** sub-mode preserves the original four schemas covering the canonical
+19 fields exactly once:
 
 1. **Identity (5):** `gr_number`, `student_name`, `fathers_name`, `mothers_name`, `surname`.
 2. **Birth & community (6):** `date_of_birth`, `dob_in_words`, `birth_place`, `religion`, `caste_category`, `address`.
 3. **Admission (3):** `admission_date`, `admission_standard`, `previous_school`.
 4. **Leaving & notes (5, skippable):** `leaving_date`, `leaving_standard`, `leaving_reason`, `progress_and_conduct`, `remarks`.
 
-For every completed utterance the browser sends one authenticated multipart request to
-`POST /api/voice-entry`; the server sends one inline audio part plus a group-specific JSON
-schema to Gemini `:generateContent`. The resulting JSON contains **both** a faithful
-`transcript` and that group's `fields`, so the audit and extracted values originate in the
-same response. The default model is `gemini-3.7-flash`, configurable independently from
-vision via `GEMINI_AUDIO_MODEL`. The design follows Google's [audio understanding guide](https://ai.google.dev/gemini-api/docs/audio),
-[GenerateContent audio reference](https://ai.google.dev/gemini-api/docs/generate-content/audio),
-and [Node.js Gemini tutorial](https://ai.google.dev/gemini-api/docs/get-started/tutorial?lang=node).
+Each completed group sends one authenticated multipart request. Gemini returns a faithful
+`transcript` and only that group's `fields` in the same response; `voice-merge.ts` merges
+completed groups in register order without changing the existing single-record behavior.
 
-**Endpoint controls:** `authorizeRequest` permits only active `staff` and `school_admin`
-and runs before `req.formData()`. The process-local limiter then allows 12 paid requests
-per user per 60 seconds and returns `429` + `Retry-After`; it is per hot server instance,
-not a distributed/global quota. Inputs are one `audio` file, one known `group`, and
-optional `language=en-IN`; unexpected/duplicate fields are rejected. The cap is 10 MB,
-and base MIME types are limited to WebM, MP4/M4A, MPEG/MP3, WAV, and OGG. Production
-uses the Node.js runtime with a 60-second route duration.
+The **Multiple entries** sub-mode records one continuous, explicitly separated dictation
+(e.g. “Entry one … Entry two …”). Gemini returns one transcript and an ordered
+`students[]` collection using all 19 canonical fields. `expectedCount` is optional and
+advisory: a mismatch produces the exact review warning but never rejects, reorders, pads,
+splits, merges, or truncates returned students. The UI warns that segmentation accuracy
+can drop past about 6 entries and again after a recording exceeds 2 minutes. Returned
+names remain Latin and every populated name is pinned to medium confidence.
 
-**Sanitation and merge:** spoken English numbers, day-first dates, and standards 1–12 are
-normalized. Names must remain Latin script exactly as spoken; non-Latin output is dropped
-rather than silently transliterated, and every populated name is pinned to **medium
-confidence** for mandatory review. Group schemas prevent cross-group field routing. Partial
-groups are preserved, then `mergeVoiceGroups` performs deterministic group-order merging
-and the admission/leaving ambiguity downgrade **once on the merged record**.
+**Endpoint controls:** `POST /api/voice-entry` authorizes active `staff` and
+`school_admin` and applies its process-local 12/user/60-second paid-request limiter before
+reading multipart bytes. Missing `mode` defaults to `single` for compatibility. Single
+mode requires one known `group` and rejects `expectedCount`; multi mode rejects `group`
+and accepts an optional integer `expectedCount` from 1 through `VOICE_MAX_ENTRIES`
+(default/max 10). Both accept one `audio` file plus `language=en-IN`, reject unexpected or
+duplicate fields, cap audio at 10 MB, and allow WebM, MP4/M4A, MPEG/MP3, WAV, and OGG.
 
-**Human-control and audit guarantees:** extracted values only fill the form; nothing
-auto-saves. Manual edits clear the auto-filled state and later groups do not overwrite
-corrections outside their scope. Re-recording clears/replaces only still-auto-filled values
-from that group. Request-generation, abort, mounted-state, timer, media-track, and object-URL
-guards prevent stale responses or leaked microphone resources. The current transcript per
-group is rebuilt in register order under exact headers such as
-`===== SPOKEN (Identity) =====` and saved through the existing nullable `ocr_raw_text`
-column. Old takes are not retained. Audio is never persisted, no migration is needed, and
-voice-only records save `image_url = NULL`; the detail page handles both values as nullable.
+The Gemini adapter timeout is 45 seconds for single groups and 180 seconds for multi audio.
+The Node.js route exports `maxDuration = 300` to leave cleanup/headroom. **This requested
+maximum is not proof that the deployed Vercel plan permits 300 seconds**; verify the actual
+function-duration allowance in deployment settings before production. A lower platform cap
+can terminate a request that succeeds locally.
 
-**Comparison diagnostic:** when `VOICE_DEBUG_COMPARE` is explicitly enabled,
-`/dashboard/records/voice-compare` sends the same clip to
-`POST /api/voice-entry?debug=all`. Every model in `VOICE_COMPARE_GEMINI_MODELS` runs in
-parallel (no first-wins) and returns transcript, fields, confidence, latency, and error side
-by side. Keep this flag off in production because all model calls consume quota.
+**Sanitation, review, and persistence:** spoken English numbers, day-first dates, and
+standards 1–12 are normalized through the existing mapper. Single groups are merged once;
+multi students are normalized independently and preserved in provider order. Nothing
+auto-saves. `VoiceBatchReview` exposes every row/field for editing or discard, validates the
+six required fields, and identifies every occurrence of an in-batch duplicate GR number.
+On explicit save, `GRRecordForm` performs one tenant-scoped existing-GR lookup, then awaits
+eligible inserts sequentially. One failed row does not roll back successful rows, and a
+race-time PostgreSQL `23505` becomes an already-existing/skipped outcome. The UI reports
+per-row states and summaries such as `3 saved, 1 skipped: GR 42 already exists.`
+
+Single transcripts remain under group headers such as `===== SPOKEN (Identity) =====`.
+Every saved row from one multi recording receives the same unsegmented audit text under
+`===== SPOKEN (Multiple entries) =====`; the system never invents transcript segments.
+Audio is never persisted and voice-only rows use `image_url = NULL`.
+
+Request generations, current-mode refs, abort controllers, mounted-state guards,
+media-track/timer/object-URL cleanup, and post-save locks prevent stale responses, leaked
+microphone resources, duplicate saves, or loss of visible outcomes.
+
+**Comparison diagnostic:** with `VOICE_DEBUG_COMPARE=1`,
+`/dashboard/records/voice-compare` sends the same in-memory clip to every configured model
+through `POST /api/voice-entry?debug=all`. The page supports both request modes. Single
+results render a cross-model field matrix; multi results render every ordered student per
+model independently, including actual counts and non-coercive mismatch warnings. Calls run
+in parallel with no first-wins. Keep this flag off in production because each model call
+consumes paid quota.
 
 ### Step 0 — Mobile-photo preprocessing (`lib/image-prep.ts`)
 Every reader (the anchor **and** all structured extractors) first runs the image through
@@ -565,16 +591,20 @@ This parser is intentionally lower-accuracy than the AI chain — it exists so t
 never left with nothing to auto-fill from.
 
 ### Step 5 — Verify & save (`components/GRRecordForm.tsx`)
-- Imports the canonical **`GRRecordData`** model and pure payload builder from
-  `lib/gr-record-data.ts`; the form still renders all 19 bilingual labels.
-- Offers **Single photo**, **Guided scan**, and **Voice entry** on create. Every source
-  uses the same field inputs, confidence dots (green/high, amber/medium, red/low),
-  validation, and explicit save button.
-- Editing a populated field clears its auto-filled marker. OCR multi-record pages require
-  record selection; grouped voice results merge into the one in-progress record.
-- `handleSubmit` maps optional blanks to `NULL`, then inserts with the profile's
-  `school_id`/`created_by` or updates by `id`; RLS enforces tenancy. It includes
-  `ocr_raw_text`, and permits a nullable `image_url` for voice-only creation.
+- Imports canonical 19-field order/labels/required metadata and the pure payload mapper from
+  `lib/gr-record-data.ts`.
+- Single photo, guided scan, and single voice continue through the ordinary one-record
+  bilingual form, confidence dots, validation, and explicit submit.
+- Multiple voice uses separate `ParsedGRFields[]` state and `VoiceBatchReview`; it never
+  enters OCR's select-one path and hides the normal one-record fields/actions while active.
+- Batch edits invalidate stale preview outcomes. Explicit save calls `saveGRRecordBatch`
+  with one school-scoped preflight and injected one-row inserts; the pure module awaits
+  inserts sequentially and continues after row-local failures.
+- Voice batch payloads set `image_url = NULL` and share the exact global multi transcript
+  in `ocr_raw_text`. No audio object is stored. Completed outcomes lock editing/capture
+  until the operator returns to records, preventing accidental duplicate saves.
+- Ordinary `handleSubmit` still maps optional blanks to `NULL`, then inserts with the
+  profile's `school_id`/`created_by` or updates by `id`; RLS enforces tenancy.
 
 ### `components/ImageUploader.tsx`
 Uploads the selected file directly to Storage at `{schoolId}/{uuid}.{ext}` (`upsert:
@@ -592,15 +622,17 @@ confidence-dot, raw-text, and save workflow. The guided endpoint stores the reco
 image directly, avoiding the single-photo path's upload → browser download → API upload
 round trip.
 
-### `components/VoiceEntryRecorder.tsx`
-A client-only, accessible four-step `MediaRecorder` flow embedded in `GRRecordForm`. It
-selects a browser-supported MIME type, submits that actual type, provides playback and
-re-record controls, permits only the leaving group to be skipped, displays transcript and
-extracted values for review, and exposes processing changes to block save while a request
-is active. Native buttons preserve keyboard operation and an `aria-live` region announces
-status/errors, including secure-context, permission, and missing-device remedies. All
-streams, timers, abort controllers, request generations, and object URLs are cleaned up on
-replace/reset/unmount.
+### Voice capture and review components
+`VoiceEntryRecorder.tsx` is the accessible Single/Multiple mode shell.
+`GroupedVoiceEntryRecorder.tsx` retains the four-step MediaRecorder flow, skippable leaving
+group, playback/re-record, transcript/field preview, and cleanup guards.
+`MultiVoiceEntryRecorder.tsx` owns one continuous recording, Auto/± count hint, explicit
+boundary example, long-batch warnings, discriminated request/response validation, and
+actual transcript/student count preview. `VoiceBatchReview.tsx` is provider-neutral: it
+accepts `ParsedGRFields[]`, edits all 19 shared fields, shows required/confidence and
+ready/invalid/saved/skipped/failed states, and supports row/batch discard before save.
+All streams, timers, abort controllers, request generations, and object URLs are cleaned up
+on replace/reset/unmount.
 
 ---
 
@@ -613,9 +645,9 @@ replace/reset/unmount.
 | Image upload & storage | `components/ImageUploader.tsx` | per-school path in private `gr-images` |
 | Guided tiled scanner | `GuidedRegisterScanner`, `/api/ocr-scan`, `reconstruct-register` | authenticated seven-shot reconstruction and quality metadata |
 | OCR + AI extraction | `lib/ocr-pipeline.ts`, OCR routes, provider adapters | production first-wins and gated compare pipeline (§9) |
-| Grouped voice entry | `VoiceEntryRecorder`, `/api/voice-entry`, `lib/gemini-audio.ts`, `lib/voice-pipeline.ts`, `lib/voice-merge.ts` | four en-IN groups, same-response transcript/fields, human review, no audio storage (§9) |
-| Voice comparison | `/dashboard/records/voice-compare`, `/api/voice-entry?debug=all` | gated, parallel Gemini audio model comparison |
-| GR record form/data | `GRRecordForm.tsx`, `lib/gr-record-data.ts` | shared create/edit/review, confidence state, explicit save, nullable voice source fields |
+| Voice entry | `VoiceEntryRecorder`, grouped/multi recorders, `VoiceBatchReview`, `/api/voice-entry`, audio pipeline | unchanged four-group single flow plus one-recording ordered multi extraction, explicit sequential batch save, no audio storage (§9) |
+| Voice comparison | `/dashboard/records/voice-compare`, `/api/voice-entry?debug=all` | gated parallel Gemini comparison for grouped fields or per-model ordered students/count warnings |
+| GR record form/data | `GRRecordForm.tsx`, `gr-record-data.ts`, `gr-record-batch.ts` | shared single review plus provider-neutral validation, duplicate preflight, row outcomes, and sequential batch persistence |
 | Records browse/search | `/dashboard/records` | substring search, filters, sort, print, shortcuts |
 | Record detail | `/dashboard/records/[id]` | optional signed scan, OCR/spoken audit, delete for school_admin |
 | Dashboard/home | `/dashboard` | aggregate counts and recent entries |
@@ -639,9 +671,10 @@ Record routes: `/dashboard/records`, `/dashboard/records/new`,
   comparison. `GET` is public non-billable health.
 - `POST /api/ocr-scan` — authenticated overview + six-tile reconstruction/extraction,
   limited to active `staff`/`school_admin`.
-- `POST /api/voice-entry` — authenticated/rate-limited group audio extraction; gated
-  `?debug=all` comparison; active `staff`/`school_admin` only. `GET` is public
-  non-billable health.
+- `POST /api/voice-entry` — authenticated/rate-limited discriminated audio extraction:
+  single mode requires `group`; multi mode forbids `group` and accepts optional
+  `expectedCount`. Gated `?debug=all` supports both; active `staff`/`school_admin` only.
+  `GET` is public non-billable health and reports the effective `maxEntries`.
 - `POST /api/admin/schools` — create school (`super_admin` only).
 - `POST /api/admin/users` — create auth user + profile; rolls back the auth user if the
   profile insert fails. `PATCH` lets a school admin toggle allowed own-school users.
@@ -726,6 +759,12 @@ imports `AGENTS.md` (`@AGENTS.md`).
 - **Voice rate-limit scope:** the 12/user/minute map is process-local. Multiple serverless
   instances do not share counters; use a distributed store if a global billing guard is
   required later.
+- **Voice function duration:** multi extraction allows 180 seconds in the adapter and the
+  route requests `maxDuration = 300`, but the real Vercel plan/platform cap is not encoded
+  in this repository. Verify deployment settings before rollout; a lower cap is the most
+  likely production failure for long recordings.
+- **Multi segmentation:** expected count is only a warning/check. Never pad or truncate to
+  match it; prefer batches of 6 or fewer and require human review of every boundary.
 - **Latin-name search tradeoff:** voice stores names in Latin script as spoken. The records
   page uses ordinary substring matching, so a Latin voice name does not match an existing
   Gujarati-script spelling of the same person. This is accepted for v1; no silent
@@ -767,14 +806,25 @@ node scripts/verify-tenancy.mjs
 ```
 
 Sign in with an active `staff` or `school_admin` account and open **New entry**. For the
-scan smoke test, upload a page from `Sample-img/`, review the filled fields, then save. For
-the voice smoke test, use **Voice entry** on **localhost or HTTPS**, grant microphone
-permission, complete/re-record the four groups, confirm medium-confidence names and the
-transcripts, manually correct a value, and explicitly save. Verify the detail page shows a
-spoken audit without requiring a scan image. A logged-in real-browser session is required
-to exercise microphone permissions and end-to-end persistence.
+scan smoke test, upload a page from `Sample-img/`, review the filled fields, then save.
+For **Single entry** voice on localhost/HTTPS, grant microphone permission, complete or
+re-record all four groups, confirm medium-confidence names/audit headers, manually correct
+a value, and explicitly save.
+
+For **Multiple entries**, record at least two students with spoken “Entry one / Entry two”
+boundaries. Test Auto and a deliberately wrong expected count; verify the exact mismatch
+warning appears while every actual row remains visible (no padding/truncation). Edit and
+discard rows, verify duplicates/missing required fields are marked, then save. Confirm the
+school-scoped preflight runs before sequential per-row outcomes, successful rows remain
+saved after another row fails/skips, `image_url` is null, and each row has the same
+`===== SPOKEN (Multiple entries) =====` audit. Confirm no audio object is persisted.
+
+A logged-in real-browser session is required for microphone permissions and end-to-end
+persistence. Also verify the deployed Vercel function duration supports the route's
+300-second request; local success does not prove the production plan limit.
 
 **First files to read:** `app/api/voice-entry/route.ts` → `lib/gemini-audio.ts` →
-`lib/voice-pipeline.ts` → `lib/voice-merge.ts` → `components/VoiceEntryRecorder.tsx` →
-`components/GRRecordForm.tsx`; for scans start at `app/api/ocr-test/route.ts` and
-`lib/ocr-pipeline.ts`.
+`lib/voice-pipeline.ts` → `components/VoiceEntryRecorder.tsx` →
+`components/MultiVoiceEntryRecorder.tsx` → `components/VoiceBatchReview.tsx` →
+`lib/gr-record-batch.ts` → `components/GRRecordForm.tsx`; for scans start at
+`app/api/ocr-test/route.ts` and `lib/ocr-pipeline.ts`.

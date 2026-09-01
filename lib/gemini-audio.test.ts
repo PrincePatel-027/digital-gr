@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { extractVoiceFields } from './gemini-audio'
+import { extractVoice, extractVoiceFields } from './gemini-audio'
 
 function responseWithModelJson(value: unknown, status = 200): Response {
   return new Response(JSON.stringify({
@@ -37,6 +37,7 @@ describe('extractVoiceFields', () => {
     )
 
     expect(result).toEqual({
+      mode: 'single',
       transcript: 'GR number one two four seven. Student Jagdish Dixit.',
       model: 'gemini-test',
       fields: {
@@ -131,5 +132,53 @@ describe('extractVoiceFields', () => {
 
     expect(result.error).toBe('Gemini audio returned an empty transcript')
     expect(result.fields).toEqual({})
+  })
+
+  it('returns the actual multi-student array without padding to the expected count', async () => {
+    process.env.GEMINI_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue(responseWithModelJson({
+      transcript: 'Entry one GR 42 Jagdish Dixit. Entry two GR 43 Mira Patel. Entry three GR 44 Jay Thakor.',
+      students: [
+        {
+          gr_number: 'forty two',
+          student_name: 'Jagdish Dixit',
+          fathers_name: '',
+          mothers_name: '',
+          surname: '',
+          date_of_birth: 'sixth January two thousand sixteen',
+          admission_date: 'tenth June two thousand twenty two',
+          admission_standard: 'standard one',
+        },
+        { gr_number: '43', student_name: 'Mira', surname: 'Patel' },
+        { gr_number: '44', student_name: 'Jay', surname: 'Thakor' },
+      ],
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await extractVoice(Buffer.from('multi-audio'), 'audio/webm', {
+      mode: 'multi',
+      expectedCount: 4,
+      model: 'gemini-test',
+      attempts: 1,
+    })
+
+    expect(result.mode).toBe('multi')
+    expect(result.students).toHaveLength(3)
+    expect(result.students[0]).toMatchObject({
+      gr_number: { value: '42', confidence: 'high' },
+      student_name: { value: 'Jagdish', confidence: 'high' },
+      surname: { value: 'Dixit', confidence: 'high' },
+      date_of_birth: { value: '2016-01-06', confidence: 'high' },
+      admission_date: { value: '2022-06-10', confidence: 'medium' },
+      admission_standard: { value: '1', confidence: 'medium' },
+    })
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    const studentSchema = request.generationConfig.responseSchema.properties.students.items
+    expect(Object.keys(studentSchema.properties)).toHaveLength(19)
+    expect(studentSchema.required).toHaveLength(19)
+    expect(request.contents[0].parts[1].text).toContain('expects 4 entries')
+    expect(request.contents[0].parts[1].text).toContain('Never pad')
+    expect(request.contents[0].parts[0].inline_data.mime_type).toBe('audio/webm')
   })
 })

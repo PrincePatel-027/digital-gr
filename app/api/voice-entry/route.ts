@@ -2,19 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isVoiceGroupId } from '@/lib/voice-fields'
 import {
   getVoiceHealth,
+  getVoiceMaxEntries,
   isVoiceCompareEnabled,
+  runMultiVoicePipeline,
   runVoiceComparison,
   runVoicePipeline,
   VoicePipelineError,
 } from '@/lib/voice-pipeline'
-import type { VoiceLanguage } from '@/lib/voice-types'
+import type { VoiceEntryMode, VoiceLanguage } from '@/lib/voice-types'
 import { authorizeRequest, RequestAuthError, type AppRole } from '@/lib/server-auth'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+// Multi-student recordings may need the adapter's full 180-second timeout.
+// Verify that the deployed Vercel plan permits this duration before production rollout.
+export const maxDuration = 300
 
 const ALLOWED_ROLES = new Set<AppRole>(['school_admin', 'staff'])
-const ALLOWED_FORM_FIELDS = new Set(['audio', 'group', 'language'])
+const ALLOWED_FORM_FIELDS = new Set([
+  'audio',
+  'mode',
+  'group',
+  'expectedCount',
+  'language',
+])
 const VALID_AUDIO_TYPES = new Set([
   'audio/webm',
   'audio/mp4',
@@ -102,6 +112,26 @@ function singleTextField(formData: FormData, name: string, required: boolean): s
   return trimmed || null
 }
 
+function optionalExpectedCount(formData: FormData, maxEntries: number): number | null {
+  const values = formData.getAll('expectedCount')
+  if (values.length > 1) {
+    throw new VoiceRequestError('Send only one "expectedCount" field.', 400)
+  }
+  if (values.length === 0) return null
+
+  const value = values[0]
+  const message = `Form field "expectedCount" must be an integer from 1 to ${maxEntries}.`
+  if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
+    throw new VoiceRequestError(message, 400)
+  }
+
+  const count = Number(value.trim())
+  if (!Number.isSafeInteger(count) || count < 1 || count > maxEntries) {
+    throw new VoiceRequestError(message, 400)
+  }
+  return count
+}
+
 async function parseMultipart(req: NextRequest) {
   let formData: FormData
   try {
@@ -134,22 +164,46 @@ async function parseMultipart(req: NextRequest) {
     )
   }
 
-  const groupValue = singleTextField(formData, 'group', true)!
-  if (!isVoiceGroupId(groupValue)) {
-    throw new VoiceRequestError(`Unknown voice group: ${groupValue}.`, 400)
+  const suppliedMode = singleTextField(formData, 'mode', false)
+  if (formData.has('mode') && suppliedMode === null) {
+    throw new VoiceRequestError('Unknown voice entry mode: (empty).', 400)
   }
+  if (suppliedMode !== null && suppliedMode !== 'single' && suppliedMode !== 'multi') {
+    throw new VoiceRequestError(`Unknown voice entry mode: ${suppliedMode}.`, 400)
+  }
+  const mode: VoiceEntryMode = suppliedMode ?? 'single'
+  const groupValue = singleTextField(formData, 'group', false)
 
   const languageValue = singleTextField(formData, 'language', false) || 'en-IN'
   if (languageValue !== 'en-IN') {
     throw new VoiceRequestError('Voice entry currently supports only en-IN.', 400)
   }
 
-  return {
+  const common = {
     audio: Buffer.from(await audio.arrayBuffer()),
     mimeType: audio.type || baseMimeType,
-    group: groupValue,
     language: languageValue as VoiceLanguage,
   }
+
+  if (mode === 'single') {
+    if (formData.has('expectedCount')) {
+      throw new VoiceRequestError(
+        'Form field "expectedCount" is allowed only in multi mode.',
+        400
+      )
+    }
+    if (!groupValue) throw new VoiceRequestError('Missing form field: group.', 400)
+    if (!isVoiceGroupId(groupValue)) {
+      throw new VoiceRequestError(`Unknown voice group: ${groupValue}.`, 400)
+    }
+    return { ...common, mode, group: groupValue }
+  }
+
+  if (formData.has('group')) {
+    throw new VoiceRequestError('Form field "group" is not allowed in multi mode.', 400)
+  }
+  const expectedCount = optionalExpectedCount(formData, getVoiceMaxEntries())
+  return { ...common, mode, expectedCount }
 }
 
 export async function POST(req: NextRequest) {
@@ -162,12 +216,23 @@ export async function POST(req: NextRequest) {
     const input = await parseMultipart(req)
     const compareRequested = req.nextUrl.searchParams.get('debug') === 'all'
     if (compareRequested && isVoiceCompareEnabled()) {
+      const comparisonOptions = input.mode === 'single'
+        ? {
+            mode: 'single' as const,
+            group: input.group,
+            language: input.language,
+            signal: req.signal,
+          }
+        : {
+            mode: 'multi' as const,
+            expectedCount: input.expectedCount,
+            language: input.language,
+            signal: req.signal,
+          }
       const result = await runVoiceComparison(
         input.audio,
         input.mimeType,
-        input.group,
-        input.language,
-        req.signal
+        comparisonOptions
       )
       if (result.results.length === 0) {
         throw new VoiceRequestError(
@@ -178,13 +243,21 @@ export async function POST(req: NextRequest) {
       return json(result)
     }
 
-    const result = await runVoicePipeline(
-      input.audio,
-      input.mimeType,
-      input.group,
-      input.language,
-      { signal: req.signal }
-    )
+    const result = input.mode === 'single'
+      ? await runVoicePipeline(
+          input.audio,
+          input.mimeType,
+          input.group,
+          input.language,
+          { signal: req.signal }
+        )
+      : await runMultiVoicePipeline(
+          input.audio,
+          input.mimeType,
+          input.expectedCount,
+          input.language,
+          { signal: req.signal }
+        )
     return json(result)
   } catch (error) {
     if (error instanceof RequestAuthError) {

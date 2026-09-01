@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { toParsedRecord } from './extract-shared'
 import {
   mergeVoiceGroups,
+  reconcileCount,
+  runMultiVoicePipeline,
   runVoicePipeline,
   VoicePipelineError,
+  type MultiVoiceRunner,
   type VoiceRunner,
 } from './voice-pipeline'
 
@@ -11,6 +14,7 @@ const audio = Buffer.from('audio')
 
 afterEach(() => {
   delete process.env.VOICE_EXTRACTOR_ORDER
+  delete process.env.VOICE_MAX_ENTRIES
 })
 
 describe('partial voice mapping', () => {
@@ -47,6 +51,7 @@ describe('runVoicePipeline', () => {
       empty: {
         available: true,
         run: async () => ({
+          mode: 'single',
           transcript: '',
           fields: {},
           model: 'empty-model',
@@ -56,6 +61,7 @@ describe('runVoicePipeline', () => {
       success: {
         available: true,
         run: async () => ({
+          mode: 'single',
           transcript: 'Student Jagdish Dixit.',
           fields: {
             student_name: { value: 'Jagdish', confidence: 'high' },
@@ -71,6 +77,7 @@ describe('runVoicePipeline', () => {
       runners,
     })
 
+    expect(result.mode).toBe('single')
     expect(result.source).toBe('success')
     expect(result.fields.student_name?.confidence).toBe('medium')
     expect(result.fields.surname?.confidence).toBe('medium')
@@ -84,6 +91,7 @@ describe('runVoicePipeline', () => {
       failed: {
         available: true,
         run: async () => ({
+          mode: 'single',
           transcript: '',
           fields: {},
           model: 'failed-model',
@@ -99,6 +107,87 @@ describe('runVoicePipeline', () => {
       name: 'VoicePipelineError',
       message: 'Voice extraction failed: failed: quota exhausted',
     }))
+  })
+})
+
+describe('runMultiVoicePipeline', () => {
+  it('returns all actual students, pins names medium, and warns without coercing count', async () => {
+    const runners: Record<string, MultiVoiceRunner> = {
+      empty: {
+        available: true,
+        run: async () => ({
+          mode: 'multi',
+          transcript: '',
+          students: [],
+          model: 'empty-model',
+          error: 'temporarily unavailable',
+        }),
+      },
+      success: {
+        available: true,
+        run: async () => ({
+          mode: 'multi',
+          transcript: 'Three complete student entries.',
+          students: [
+            {
+              gr_number: { value: '42', confidence: 'high' },
+              student_name: { value: 'Jagdish', confidence: 'high' },
+            },
+            {
+              gr_number: { value: '43', confidence: 'high' },
+              student_name: { value: 'Mira', confidence: 'high' },
+            },
+            {
+              gr_number: { value: '44', confidence: 'high' },
+              student_name: { value: 'Jay', confidence: 'high' },
+            },
+          ],
+          model: 'working-model',
+        }),
+      },
+    }
+
+    const result = await runMultiVoicePipeline(audio, 'audio/webm', 4, 'en-IN', {
+      order: ['empty', 'success'],
+      runners,
+    })
+
+    expect(result.mode).toBe('multi')
+    expect(result.students).toHaveLength(3)
+    expect(result.students.every((record) => record.student_name?.confidence === 'medium')).toBe(true)
+    expect(result.warning).toBe(
+      'empty: temporarily unavailable | You expected 4 entries, I found 3. Review before saving.'
+    )
+  })
+
+  it('reports total multi-provider failure as a real error', async () => {
+    const runners: Record<string, MultiVoiceRunner> = {
+      empty: {
+        available: true,
+        run: async () => ({
+          mode: 'multi',
+          transcript: 'Speech was heard.',
+          students: [],
+          model: 'empty-model',
+        }),
+      },
+    }
+
+    await expect(runMultiVoicePipeline(audio, 'audio/webm', null, 'en-IN', {
+      order: ['empty'],
+      runners,
+    })).rejects.toEqual(expect.objectContaining<Partial<VoicePipelineError>>({
+      name: 'VoicePipelineError',
+      message: 'Multi-entry voice extraction failed: empty: no student records extracted',
+    }))
+  })
+
+  it('reconciles count only as a warning', () => {
+    expect(reconcileCount(null, 3)).toBeNull()
+    expect(reconcileCount(3, 3)).toBeNull()
+    expect(reconcileCount(4, 3)).toBe(
+      'You expected 4 entries, I found 3. Review before saving.'
+    )
   })
 })
 

@@ -10,14 +10,24 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import {
+  GR_RECORD_FIELD_LABELS,
+  GR_RECORD_FIELD_ORDER,
+} from '@/lib/gr-record-data'
+import {
   VOICE_FIELD_GROUPS,
   VOICE_FIELD_LABELS,
   VOICE_GROUP_ORDER,
 } from '@/lib/voice-fields'
-import type {
-  VoiceApiErrorResponse,
-  VoiceCompareResponse,
-  VoiceGroupId,
+import {
+  VOICE_EXPECTED_COUNT_MAX,
+  VOICE_EXPECTED_COUNT_MIN,
+  type VoiceApiErrorResponse,
+  type VoiceCompareResponse,
+  type VoiceEntryMode,
+  type VoiceGroupId,
+  type VoiceHealthResponse,
+  type VoiceMultiCompareResult,
+  type VoiceSingleCompareResult,
 } from '@/lib/voice-types'
 
 interface RecordedAudio {
@@ -62,13 +72,18 @@ export default function VoiceComparePage() {
   const requestIdRef = useRef(0)
   const mountedRef = useRef(true)
 
+  const [entryMode, setEntryMode] = useState<VoiceEntryMode>('single')
   const [group, setGroup] = useState<VoiceGroupId>('identity')
+  const [expectedCount, setExpectedCount] = useState<number | null>(null)
+  const [maxEntries, setMaxEntries] = useState(VOICE_EXPECTED_COUNT_MAX)
   const [audio, setAudio] = useState<RecordedAudio | null>(null)
   const [starting, setStarting] = useState(false)
   const [recording, setRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [data, setData] = useState<VoiceCompareResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const busy = starting || recording || processing
 
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -82,6 +97,7 @@ export default function VoiceComparePage() {
   }
 
   useEffect(() => {
+    mountedRef.current = true
     return () => {
       mountedRef.current = false
       requestIdRef.current += 1
@@ -97,6 +113,38 @@ export default function VoiceComparePage() {
       if (audioRef.current) URL.revokeObjectURL(audioRef.current.previewUrl)
     }
   }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    async function loadVoiceHealth() {
+      try {
+        const response = await fetch('/api/voice-entry', {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        if (!response.ok) return
+        const health = await response.json() as VoiceHealthResponse
+        if (!mountedRef.current || controller.signal.aborted) return
+        const maximum = Number.isInteger(health.maxEntries)
+          ? Math.max(
+              VOICE_EXPECTED_COUNT_MIN,
+              Math.min(VOICE_EXPECTED_COUNT_MAX, health.maxEntries)
+            )
+          : VOICE_EXPECTED_COUNT_MAX
+        setMaxEntries(maximum)
+        setExpectedCount((current) => current === null ? null : Math.min(current, maximum))
+      } catch {
+        // The health request is advisory; POST validation remains authoritative.
+      }
+    }
+    void loadVoiceHealth()
+    return () => controller.abort()
+  }, [])
+
+  function clearComparison() {
+    setData(null)
+    setError(null)
+  }
 
   async function startRecording() {
     setError(null)
@@ -188,6 +236,9 @@ export default function VoiceComparePage() {
       return
     }
 
+    const submittedMode = entryMode
+    const submittedGroup = group
+    const submittedExpectedCount = expectedCount
     const requestId = ++requestIdRef.current
     controllerRef.current?.abort()
     const controller = new AbortController()
@@ -198,8 +249,14 @@ export default function VoiceComparePage() {
     try {
       const formData = new FormData()
       formData.append('audio', audio.blob, `voice-compare.${extensionFor(audio.mimeType)}`)
-      formData.append('group', group)
+      formData.append('mode', submittedMode)
       formData.append('language', 'en-IN')
+      if (submittedMode === 'single') {
+        formData.append('group', submittedGroup)
+      } else if (submittedExpectedCount !== null) {
+        formData.append('expectedCount', String(submittedExpectedCount))
+      }
+
       const response = await fetch('/api/voice-entry?debug=all', {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -217,6 +274,12 @@ export default function VoiceComparePage() {
       if (!('mode' in body) || body.mode !== 'compare') {
         throw new Error('Voice compare mode is off. Set VOICE_DEBUG_COMPARE=1 and restart the server.')
       }
+      if (body.entryMode !== submittedMode) {
+        throw new Error('The server returned a different voice-entry mode. Run the comparison again.')
+      }
+      if (body.results.some((result) => result.entryMode !== submittedMode)) {
+        throw new Error('At least one model returned the wrong comparison shape.')
+      }
       if (!body.results.length) throw new Error('No configured voice models returned a comparison result.')
       if (!mountedRef.current || controller.signal.aborted || requestId !== requestIdRef.current) return
       setData(body)
@@ -231,20 +294,26 @@ export default function VoiceComparePage() {
 
   const definition = VOICE_FIELD_GROUPS[group]
   const results = data?.results ?? []
+  const singleResults = results.filter(
+    (result): result is VoiceSingleCompareResult => result.entryMode === 'single'
+  )
+  const multiResults = results.filter(
+    (result): result is VoiceMultiCompareResult => result.entryMode === 'multi'
+  )
 
   return (
     <div className="space-y-6">
       <div>
         <Link href="/dashboard/records" className="text-sm text-ink-soft hover:text-ink inline-flex items-center gap-1.5">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
           Back to records
         </Link>
         <h1 className="text-3xl sm:text-4xl mt-3">Compare voice models</h1>
         <p className="text-sm text-ink-soft mt-2 max-w-2xl">
-          Record one English utterance and run that exact audio through every configured Gemini model.
-          Compare transcript, fields, confidence, latency, and errors side by side. Diagnostic only; nothing is saved.
+          Record one English sample and run that exact audio through every configured Gemini model.
+          Compare grouped fields or multi-student segmentation, confidence, latency, and errors. Diagnostic only; nothing is saved.
         </p>
         <Link href="/dashboard/records/compare" className="text-xs font-semibold text-accent hover:underline mt-2 inline-block">
           Compare OCR engines instead →
@@ -252,28 +321,120 @@ export default function VoiceComparePage() {
       </div>
 
       <div className="neu-card p-5 space-y-4">
-        <div>
-          <label htmlFor="voice-compare-group" className="text-xs font-semibold text-ink-soft">Dictation group</label>
-          <select
-            id="voice-compare-group"
-            value={group}
-            onChange={(event) => {
-              setGroup(event.target.value as VoiceGroupId)
-              setData(null)
-              setError(null)
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Voice comparison entry mode">
+          <button
+            type="button"
+            onClick={() => {
+              setEntryMode('single')
+              clearComparison()
             }}
-            disabled={starting || recording || processing}
-            className="neu-input mt-1.5"
+            disabled={busy}
+            aria-pressed={entryMode === 'single'}
+            className={`neu-btn text-xs ${entryMode === 'single' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
           >
-            {VOICE_GROUP_ORDER.map((groupId) => (
-              <option key={groupId} value={groupId}>{VOICE_FIELD_GROUPS[groupId].title}</option>
-            ))}
-          </select>
-          <p className="text-xs text-ink-soft mt-2">Example: “{definition.example}”</p>
+            Single entry
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEntryMode('multi')
+              clearComparison()
+            }}
+            disabled={busy}
+            aria-pressed={entryMode === 'multi'}
+            className={`neu-btn text-xs ${entryMode === 'multi' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+          >
+            Multiple entries
+          </button>
         </div>
 
+        {entryMode === 'single' ? (
+          <div>
+            <label htmlFor="voice-compare-group" className="text-xs font-semibold text-ink-soft">Dictation group</label>
+            <select
+              id="voice-compare-group"
+              value={group}
+              onChange={(event) => {
+                setGroup(event.target.value as VoiceGroupId)
+                clearComparison()
+              }}
+              disabled={busy}
+              className="neu-input mt-1.5"
+            >
+              {VOICE_GROUP_ORDER.map((groupId) => (
+                <option key={groupId} value={groupId}>{VOICE_FIELD_GROUPS[groupId].title}</option>
+              ))}
+            </select>
+            <p className="text-xs text-ink-soft mt-2">Example: “{definition.example}”</p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-line bg-surface-2 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-ink">Expected student count</p>
+                <p className="text-[11px] text-ink-soft mt-0.5">Optional hint only; models are never padded or truncated.</p>
+              </div>
+              <div className="inline-flex items-center gap-1 self-start" role="group" aria-label="Expected student count">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpectedCount(null)
+                    clearComparison()
+                  }}
+                  disabled={busy}
+                  aria-pressed={expectedCount === null}
+                  className={`neu-btn px-3 py-2 text-xs ${expectedCount === null ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpectedCount((count) => count === null || count <= VOICE_EXPECTED_COUNT_MIN ? null : count - 1)
+                    clearComparison()
+                  }}
+                  disabled={busy || expectedCount === null}
+                  aria-label="Decrease expected student count"
+                  className="neu-btn neu-btn-secondary px-3 py-2"
+                >
+                  −
+                </button>
+                <output className="min-w-10 text-center text-sm font-semibold text-mono text-ink" aria-live="polite">
+                  {expectedCount ?? '—'}
+                </output>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpectedCount((count) => count === null ? VOICE_EXPECTED_COUNT_MIN : Math.min(maxEntries, count + 1))
+                    clearComparison()
+                  }}
+                  disabled={busy || expectedCount === maxEntries}
+                  aria-label="Increase expected student count"
+                  className="neu-btn neu-btn-secondary px-3 py-2"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-ink-soft mt-3">
+              Example: “Entry one: GR number 42, name Jagdish Dixit… Entry two: GR number 43, name…”
+            </p>
+            {expectedCount !== null && expectedCount > 6 && (
+              <p className="text-xs text-warning mt-2">Segmentation accuracy can drop past about 6 entries.</p>
+            )}
+          </div>
+        )}
+
         <p className="sr-only" aria-live="polite">
-          {starting ? 'Requesting microphone.' : recording ? 'Recording comparison audio.' : processing ? 'Comparing all configured models.' : audio ? 'Recording ready for playback and comparison.' : 'Ready to record.'}
+          {starting
+            ? 'Requesting microphone.'
+            : recording
+              ? 'Recording comparison audio.'
+              : processing
+                ? 'Comparing all configured models.'
+                : audio
+                  ? 'Recording ready for playback and comparison.'
+                  : 'Ready to record.'}
         </p>
 
         {recording ? (
@@ -300,10 +461,18 @@ export default function VoiceComparePage() {
               disabled={processing}
               className="neu-btn neu-btn-accent w-full"
             >
-              {processing ? 'Running every configured model…' : 'Compare this recording'}
+              {processing
+                ? 'Running every configured model…'
+                : entryMode === 'single'
+                  ? 'Compare grouped extraction'
+                  : 'Compare student segmentation'}
             </button>
           </div>
         )}
+
+        <p className="text-[11px] text-ink-faint">
+          Audio stays in memory only for this diagnostic and is never persisted.
+        </p>
       </div>
 
       {error && (
@@ -320,11 +489,16 @@ export default function VoiceComparePage() {
                 <header className="px-4 py-3 border-b border-line-strong bg-surface-2">
                   <p className="text-sm font-semibold text-ink">{result.model}</p>
                   <p className="text-[11px] text-ink-faint mt-0.5">
-                    {result.source} · {(result.ms / 1000).toFixed(2)}s · {Object.keys(result.fields).length} fields
+                    {result.source} · {(result.ms / 1000).toFixed(2)}s · {'fields' in result
+                      ? `${Object.keys(result.fields).length} fields`
+                      : `${result.students.length} students`}
                   </p>
                 </header>
                 <div className="p-4 space-y-3">
                   {result.error && <p className="text-xs font-medium text-error">{result.error}</p>}
+                  {result.warning && (
+                    <p className="text-xs font-medium text-warning">{result.warning}</p>
+                  )}
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">Transcript</p>
                     <p className="text-sm text-ink mt-1.5 leading-relaxed">{result.transcript || '—'}</p>
@@ -334,39 +508,102 @@ export default function VoiceComparePage() {
             ))}
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="ledger w-full">
-              <thead>
-                <tr>
-                  <th className="text-left">Field</th>
-                  {results.map((result) => (
-                    <th key={result.model} className="text-left">{result.model}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {definition.fields.map((field) => (
-                  <tr key={field}>
-                    <td className="text-xs text-ink-soft whitespace-nowrap">{VOICE_FIELD_LABELS[field]}</td>
-                    {results.map((result) => {
-                      const value = result.fields[field]
-                      return (
-                        <td key={result.model} className="align-top">
-                          {value ? (
-                            <span className="inline-flex items-start gap-1.5">
-                              <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${confidenceClass(value.confidence)}`} aria-hidden="true" />
-                              <span className="text-sm text-ink">{value.value}</span>
-                              <span className="sr-only">{value.confidence} confidence</span>
-                            </span>
-                          ) : <span className="text-ink-faint">—</span>}
-                        </td>
-                      )
-                    })}
+          {data?.entryMode === 'single' ? (
+            <div className="overflow-x-auto">
+              <table className="ledger w-full">
+                <thead>
+                  <tr>
+                    <th className="text-left">Field</th>
+                    {singleResults.map((result) => (
+                      <th key={result.model} className="text-left">{result.model}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {definition.fields.map((field) => (
+                    <tr key={field}>
+                      <td className="text-xs text-ink-soft whitespace-nowrap">{VOICE_FIELD_LABELS[field]}</td>
+                      {singleResults.map((result) => {
+                        const value = result.fields[field]
+                        return (
+                          <td key={result.model} className="align-top">
+                            {value ? (
+                              <span className="inline-flex items-start gap-1.5">
+                                <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${confidenceClass(value.confidence)}`} aria-hidden="true" />
+                                <span className="text-sm text-ink">{value.value}</span>
+                                <span className="sr-only">{value.confidence} confidence</span>
+                              </span>
+                            ) : <span className="text-ink-faint">—</span>}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {multiResults.map((result) => (
+                <section key={`${result.source}-${result.model}-students`} className="neu-card overflow-hidden">
+                  <header className="px-5 py-3 border-b border-line-strong bg-surface-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-semibold text-ink">{result.model}</h2>
+                      <span className="neu-badge bg-accent/10 text-accent">
+                        {result.students.length} student{result.students.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  </header>
+                  <div className="p-4 sm:p-5 space-y-5">
+                    {result.students.length === 0 ? (
+                      <p className="text-sm text-ink-soft">No student records returned by this model.</p>
+                    ) : result.students.map((student, studentIndex) => (
+                      <article key={`${result.model}-student-${studentIndex}`} className="rounded-xl border border-line-strong overflow-hidden">
+                        <header className="px-4 py-3 bg-surface-2 border-b border-line">
+                          <p className="text-xs font-semibold text-accent text-mono">Student {studentIndex + 1}</p>
+                          <p className="text-sm font-semibold text-ink mt-0.5">
+                            {student.student_name?.value || '(Unknown name)'}
+                          </p>
+                          <p className="text-xs text-ink-soft mt-0.5">
+                            GR <span className="text-mono">{student.gr_number?.value || '—'}</span>
+                          </p>
+                        </header>
+                        <div className="overflow-x-auto">
+                          <table className="ledger w-full">
+                            <thead>
+                              <tr>
+                                <th className="text-left">Field</th>
+                                <th className="text-left">Extracted value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {GR_RECORD_FIELD_ORDER.map((field) => {
+                                const value = student[field]
+                                return (
+                                  <tr key={field}>
+                                    <td className="text-xs text-ink-soft whitespace-nowrap">{GR_RECORD_FIELD_LABELS[field]}</td>
+                                    <td>
+                                      {value ? (
+                                        <span className="inline-flex items-start gap-1.5">
+                                          <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${confidenceClass(value.confidence)}`} aria-hidden="true" />
+                                          <span className="text-sm text-ink">{value.value}</span>
+                                          <span className="sr-only">{value.confidence} confidence</span>
+                                        </span>
+                                      ) : <span className="text-ink-faint">—</span>}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

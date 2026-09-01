@@ -7,6 +7,7 @@ function result(
   transcript: string
 ): VoiceEntryResponse {
   return {
+    mode: 'single',
     group,
     language: 'en-IN',
     transcript,

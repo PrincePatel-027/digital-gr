@@ -12,10 +12,19 @@ import type {
   OcrPipelineResponse,
 } from '@/lib/ocr-types'
 import {
+  formatGRRecordBatchSummary,
+  saveGRRecordBatch,
+  type GRRecordBatchResult,
+} from '@/lib/gr-record-batch'
+import {
   buildGRRecordPayload,
   EMPTY_GR_RECORD,
+  GR_RECORD_FIELD_LABELS,
+  GR_RECORD_FIELD_ORDER,
+  GR_RECORD_REQUIRED_FIELDS,
   mergeParsedValues,
   type GRRecordData,
+  type GRRecordField,
 } from '@/lib/gr-record-data'
 import { VOICE_FIELD_GROUPS } from '@/lib/voice-fields'
 import {
@@ -23,9 +32,15 @@ import {
   mergeVoiceGroups,
   voiceResultsInGroupOrder,
 } from '@/lib/voice-merge'
-import type { VoiceEntryResponse, VoiceGroupId } from '@/lib/voice-types'
-import ImageUploader from '@/components/ImageUploader'
+import type {
+  VoiceEntryMode,
+  VoiceEntryResponse,
+  VoiceGroupId,
+  VoiceMultiEntryResponse,
+} from '@/lib/voice-types'
 import GuidedRegisterScanner from '@/components/GuidedRegisterScanner'
+import ImageUploader from '@/components/ImageUploader'
+import VoiceBatchReview from '@/components/VoiceBatchReview'
 import VoiceEntryRecorder from '@/components/VoiceEntryRecorder'
 
 export type { GRRecordData } from '@/lib/gr-record-data'
@@ -37,42 +52,7 @@ interface GRRecordFormProps {
 }
 
 const EMPTY_FORM = EMPTY_GR_RECORD
-
-const REQUIRED_FIELDS: (keyof GRRecordData)[] = [
-  'gr_number', 'student_name', 'fathers_name', 'surname', 'date_of_birth', 'admission_date',
-]
-
-const FIELD_LABELS: Record<string, string> = {
-  // Left page
-  gr_number: 'રજિસ્ટર નંબર / GR Number',
-  student_name: 'વિદ્યાર્થીનું નામ / Student Name',
-  fathers_name: 'પિતાનું નામ / Father\'s Name',
-  mothers_name: 'માતાનું નામ / Mother\'s Name',
-  surname: 'અટક / Surname',
-  religion: 'ધર્મ / Religion',
-  caste_category: 'જ્ઞાતિ / Caste',
-  date_of_birth: 'જન્મ તારીખ (અંકમાં) / DOB',
-  dob_in_words: 'જન્મ તારીખ (શબ્દોમાં) / DOB in Words',
-  birth_place: 'જન્મ સ્થળ / Birth Place',
-  address: 'ગામ / Village',
-  previous_school: 'છેલ્લી શાળા / Previous School',
-  // Right page
-  admission_date: 'દાખલ થયા તારીખ / Admission Date',
-  admission_standard: 'દાખલ થયા ધોરણ / Admission Std.',
-  progress_and_conduct: 'પ્રગતિ અને વર્તન / Progress & Conduct',
-  leaving_date: 'શાળા છોડ્યા તારીખ / Leaving Date',
-  leaving_reason: 'છોડવાનું કારણ / Reason for Leaving',
-  leaving_standard: 'છોડતી વખતે ધોરણ / Leaving Std.',
-  remarks: 'રીમાર્ક્સ / શેરો / Remarks',
-}
-
-const PARSEABLE_FIELDS: (keyof ParsedGRFields)[] = [
-  'gr_number', 'student_name', 'fathers_name', 'mothers_name',
-  'surname', 'religion', 'caste_category', 'date_of_birth',
-  'dob_in_words', 'birth_place', 'address', 'previous_school',
-  'admission_date', 'admission_standard', 'progress_and_conduct',
-  'leaving_date', 'leaving_reason', 'leaving_standard', 'remarks',
-]
+const REQUIRED_FIELD_SET = new Set<GRRecordField>(GR_RECORD_REQUIRED_FIELDS)
 
 // Dot colour by extraction confidence
 function confidenceClass(confidence?: ParsedField['confidence']) {
@@ -87,6 +67,9 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const { profile, session } = useAuth()
   const ocrRequestIdRef = useRef(0)
   const voiceSessionRequestIdRef = useRef(0)
+  const captureModeRef = useRef<'single' | 'guided' | 'voice'>('single')
+  const voiceEntryModeRef = useRef<VoiceEntryMode>('single')
+  const batchResultRef = useRef<GRRecordBatchResult | null>(null)
   const voiceResultsRef = useRef<Partial<Record<VoiceGroupId, VoiceEntryResponse>>>({})
   const autoFilledFieldsRef = useRef<Set<keyof ParsedGRFields>>(new Set())
 
@@ -103,11 +86,35 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const [captureMode, setCaptureMode] = useState<'single' | 'guided' | 'voice'>('single')
   const [extractionWarnings, setExtractionWarnings] = useState<string[]>([])
 
-  // Multi-record support
+  // OCR can return several rows, but this remains the select-one flow.
   const [parsedRecords, setParsedRecords] = useState<ParsedGRFields[]>([])
   const [selectedRecordIndex, setSelectedRecordIndex] = useState<number | null>(null)
   const [autoFilledFields, setAutoFilledFields] = useState<Set<keyof ParsedGRFields>>(new Set())
   const [showRawText, setShowRawText] = useState(false)
+
+  // Multi-entry voice stays separate from OCR selection and the single-record form.
+  const [voiceEntryMode, setVoiceEntryMode] = useState<VoiceEntryMode>('single')
+  const [voiceRecorderKey, setVoiceRecorderKey] = useState(0)
+  const [multiRecords, setMultiRecords] = useState<ParsedGRFields[]>([])
+  const [multiAuditText, setMultiAuditText] = useState('')
+  const [multiWarning, setMultiWarning] = useState<string | null>(null)
+  const [multiStudentCount, setMultiStudentCount] = useState<number | null>(null)
+  const [batchResult, setBatchResult] = useState<GRRecordBatchResult | null>(null)
+  const [batchSummary, setBatchSummary] = useState<string | null>(null)
+  const [batchError, setBatchError] = useState<string | null>(null)
+  const [batchSaving, setBatchSaving] = useState(false)
+
+  function clearVoiceBatchState() {
+    batchResultRef.current = null
+    setMultiRecords([])
+    setMultiAuditText('')
+    setMultiWarning(null)
+    setMultiStudentCount(null)
+    setBatchResult(null)
+    setBatchSummary(null)
+    setBatchError(null)
+    setBatchSaving(false)
+  }
 
   const applyParsedRecord = useCallback((
     parsed: ParsedGRFields,
@@ -115,7 +122,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     options?: { merge?: boolean }
   ) => {
     const filledKeys = new Set<keyof ParsedGRFields>()
-    for (const field of PARSEABLE_FIELDS) {
+    for (const field of GR_RECORD_FIELD_ORDER) {
       if (parsed[field]?.value) filledKeys.add(field)
     }
 
@@ -169,8 +176,10 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
   function validate(): boolean {
     const newErrors: Partial<Record<keyof GRRecordData, string>> = {}
-    for (const field of REQUIRED_FIELDS) {
-      if (!form[field]?.trim()) newErrors[field] = `${FIELD_LABELS[field].split(' /')[0]} is required`
+    for (const field of GR_RECORD_REQUIRED_FIELDS) {
+      if (!form[field]?.trim()) {
+        newErrors[field] = `${GR_RECORD_FIELD_LABELS[field].split(' /')[0]} is required`
+      }
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -193,6 +202,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     autoFilledFieldsRef.current = new Set()
     setAutoFilledFields(new Set())
     setShowRawText(false)
+    clearVoiceBatchState()
     return requestId
   }
 
@@ -304,13 +314,40 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   }
 
   function selectCaptureMode(nextMode: 'single' | 'guided' | 'voice') {
-    if (nextMode === captureMode) return
+    if (
+      nextMode === captureModeRef.current ||
+      saving ||
+      batchSaving ||
+      batchResultRef.current ||
+      ocrLoading ||
+      captureBusy
+    ) return
+
     const requestId = beginOcrSource()
     voiceSessionRequestIdRef.current = nextMode === 'voice' ? requestId : 0
+    captureModeRef.current = nextMode
+    voiceEntryModeRef.current = 'single'
+    setVoiceEntryMode('single')
     setCaptureMode(nextMode)
   }
 
+  function handleVoiceEntryModeChange(nextMode: VoiceEntryMode) {
+    if (
+      captureModeRef.current !== 'voice' ||
+      nextMode === voiceEntryModeRef.current ||
+      saving ||
+      batchSaving ||
+      batchResultRef.current
+    ) return
+
+    const requestId = beginOcrSource()
+    voiceSessionRequestIdRef.current = requestId
+    voiceEntryModeRef.current = nextMode
+    setVoiceEntryMode(nextMode)
+  }
+
   function ensureVoiceSession() {
+    if (batchResultRef.current) return
     if (
       voiceSessionRequestIdRef.current > 0 &&
       voiceSessionRequestIdRef.current === ocrRequestIdRef.current
@@ -381,13 +418,136 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     syncVoiceAggregate(nextResults)
   }
 
-  function resetVoiceSession() {
+  function handleVoiceMultiComplete(
+    result: VoiceMultiEntryResponse,
+    callbackGeneration: number
+  ) {
+    if (
+      captureModeRef.current !== 'voice' ||
+      voiceEntryModeRef.current !== 'multi' ||
+      batchResultRef.current ||
+      callbackGeneration !== voiceSessionRequestIdRef.current ||
+      callbackGeneration !== ocrRequestIdRef.current
+    ) return
+
+    const trimmedTranscript = result.transcript.trim()
+    const auditText = `===== SPOKEN (Multiple entries) =====\n${trimmedTranscript}`
+    setMultiRecords(result.students)
+    setMultiAuditText(auditText)
+    setMultiWarning(result.warning)
+    setMultiStudentCount(result.students.length)
+    batchResultRef.current = null
+    setBatchResult(null)
+    setBatchSummary(null)
+    setBatchError(null)
+  }
+
+  function handleVoiceMultiClear(callbackGeneration: number) {
+    if (
+      captureModeRef.current !== 'voice' ||
+      voiceEntryModeRef.current !== 'multi' ||
+      batchResultRef.current ||
+      callbackGeneration !== voiceSessionRequestIdRef.current ||
+      callbackGeneration !== ocrRequestIdRef.current
+    ) return
+
     voiceSessionRequestIdRef.current = beginOcrSource()
+  }
+
+  function handleVoiceBatchChange(records: ParsedGRFields[]) {
+    if (batchResultRef.current) return
+    setBatchResult(null)
+    setBatchSummary(null)
+    setBatchError(null)
+    setMultiRecords(records)
+  }
+
+  function discardVoiceBatch() {
+    if (saving || batchSaving || batchResultRef.current) return
+
+    const requestId = beginOcrSource()
+    voiceSessionRequestIdRef.current = requestId
+    voiceEntryModeRef.current = 'single'
+    setVoiceEntryMode('single')
+    setVoiceRecorderKey((current) => current + 1)
+  }
+
+  function resetVoiceSession() {
+    if (saving || batchSaving || batchResultRef.current) return
+    voiceSessionRequestIdRef.current = beginOcrSource()
+  }
+
+  async function handleVoiceBatchSave() {
+    setBatchError(null)
+
+    if (mode !== 'create' || captureMode !== 'voice' || voiceEntryMode !== 'multi') {
+      setBatchError('Multiple-entry voice mode is no longer active. Record the batch again.')
+      return
+    }
+    if (saving || batchSaving || ocrLoading || captureBusy) {
+      setBatchError('Wait for the current capture or save to finish before saving this batch.')
+      return
+    }
+    if (batchResultRef.current) {
+      setBatchError('This batch already has save outcomes. Start a new batch to save more records.')
+      return
+    }
+    if (!profile) {
+      setBatchError('You must be logged in.')
+      return
+    }
+    if (!profile.school_id) {
+      setBatchError('Your profile is not assigned to a school.')
+      return
+    }
+    if (multiRecords.length === 0 || !multiAuditText) {
+      setBatchError('Record and review at least one student before saving.')
+      return
+    }
+
+    const schoolId = profile.school_id
+    setBatchSaving(true)
+    try {
+      const result = await saveGRRecordBatch(multiRecords, {
+        schoolId,
+        createdBy: profile.id,
+        imageUrl: null,
+        ocrRawText: multiAuditText,
+        findExisting: async (grNumbers) => {
+          const { data, error } = await supabase
+            .from('gr_records')
+            .select('gr_number')
+            .eq('school_id', schoolId)
+            .in('gr_number', [...grNumbers])
+          if (error) throw error
+          return (data ?? [])
+            .map((row) => row.gr_number)
+            .filter((grNumber): grNumber is string => typeof grNumber === 'string')
+        },
+        insertOne: async (payload) => {
+          const { error } = await supabase.from('gr_records').insert(payload)
+          if (error) throw error
+        },
+      })
+      batchResultRef.current = result
+      setBatchResult(result)
+      setBatchSummary(formatGRRecordBatchSummary(result))
+    } catch (error) {
+      setBatchError(`Batch save failed: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBatchSaving(false)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (mode === 'create' && captureMode === 'voice' && voiceEntryMode === 'multi') {
+      setBatchError('Use Save reviewed records to save a multiple-entry voice batch.')
+      return
+    }
+
     setSaveError(null)
+    if (saving || batchSaving) return
     if (ocrLoading || captureBusy) {
       setSaveError('Wait for the current capture to finish before saving.')
       return
@@ -432,22 +592,25 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const selectedParsedFields = selectedRecordIndex !== null ? parsedRecords[selectedRecordIndex] : null
   const parsedCount = selectedParsedFields ? countParsedFields(selectedParsedFields) : { total: 0 }
   const scanBusy = ocrLoading || captureBusy
+  const isVoiceMultiMode = mode === 'create' && captureMode === 'voice' && voiceEntryMode === 'multi'
+  const voiceCallbackGeneration = voiceSessionRequestIdRef.current
+  const captureControlsDisabled = scanBusy || saving || batchSaving || batchResult !== null
   const needsRecordSelection = parsedRecords.length > 1 && selectedRecordIndex === null
 
   function renderInput(
-    field: keyof GRRecordData,
+    field: GRRecordField,
     type: string = 'text',
     opts?: { placeholder?: string; rows?: number }
   ) {
-    const isRequired = REQUIRED_FIELDS.includes(field)
+    const isRequired = REQUIRED_FIELD_SET.has(field)
     const hasError = !!errors[field]
-    const isAutoFilled = autoFilledFields.has(field as keyof ParsedGRFields)
-    const parsed = selectedParsedFields ? selectedParsedFields[field as keyof ParsedGRFields] : null
+    const isAutoFilled = autoFilledFields.has(field)
+    const parsed = selectedParsedFields ? selectedParsedFields[field] : null
 
     // Labels are stored as "ગુજરાતી / English" — split so Gujarati leads, the way
     // the caption is printed on the page, with English as the quiet sub-caption.
     const [guLabel, enLabel] = (() => {
-      const raw = FIELD_LABELS[field] || field
+      const raw = GR_RECORD_FIELD_LABELS[field]
       const idx = raw.indexOf(' / ')
       return idx === -1 ? [raw, ''] : [raw.slice(0, idx), raw.slice(idx + 3)]
     })()
@@ -512,7 +675,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                 <button
                   type="button"
                   onClick={() => selectCaptureMode('single')}
-                  disabled={scanBusy || saving}
+                  disabled={captureControlsDisabled}
                   aria-pressed={captureMode === 'single'}
                   className={`neu-btn text-xs ${captureMode === 'single' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
                 >
@@ -521,7 +684,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                 <button
                   type="button"
                   onClick={() => selectCaptureMode('guided')}
-                  disabled={scanBusy || saving}
+                  disabled={captureControlsDisabled}
                   aria-pressed={captureMode === 'guided'}
                   className={`neu-btn text-xs ${captureMode === 'guided' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
                 >
@@ -530,7 +693,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                 <button
                   type="button"
                   onClick={() => selectCaptureMode('voice')}
-                  disabled={scanBusy || saving}
+                  disabled={captureControlsDisabled}
                   aria-pressed={captureMode === 'voice'}
                   className={`neu-btn text-xs ${captureMode === 'voice' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
                 >
@@ -542,19 +705,23 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                 <ImageUploader
                   onUpload={handleImageUpload}
                   onBusyChange={setCaptureBusy}
-                  disabled={scanBusy || saving}
+                  disabled={captureControlsDisabled}
                 />
               ) : captureMode === 'guided' ? (
                 <GuidedRegisterScanner
                   onComplete={handleGuidedScanComplete}
                   onProcessingChange={handleGuidedProcessingChange}
-                  disabled={saving || scanBusy}
+                  disabled={captureControlsDisabled}
                 />
               ) : (
                 <VoiceEntryRecorder
-                  disabled={saving}
+                  key={voiceRecorderKey}
+                  disabled={captureControlsDisabled}
                   onGroupComplete={handleVoiceGroupComplete}
                   onGroupClear={handleVoiceGroupClear}
+                  onMultiComplete={(result) => handleVoiceMultiComplete(result, voiceCallbackGeneration)}
+                  onMultiClear={() => handleVoiceMultiClear(voiceCallbackGeneration)}
+                  onEntryModeChange={handleVoiceEntryModeChange}
                   onProcessingChange={setCaptureBusy}
                   onSessionStart={ensureVoiceSession}
                   onReset={resetVoiceSession}
@@ -563,7 +730,63 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
             </div>
           </div>
 
+          {isVoiceMultiMode && (
+            <div
+              className="neu-card p-5 sm:p-6 space-y-3"
+              aria-live="polite"
+              aria-busy={scanBusy}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-gujarati-serif text-sm font-semibold">બહુવિધ એન્ટ્રી વિગતો</h2>
+                <span className="neu-badge bg-accent/10 text-accent">Voice batch</span>
+              </div>
+
+              {scanBusy ? (
+                <div className="flex flex-col items-center gap-3 py-10 text-ink-soft">
+                  <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-sm font-medium">Recording or processing multiple entries…</span>
+                  <span className="text-xs text-ink-faint">No records will be saved automatically.</span>
+                </div>
+              ) : multiStudentCount !== null ? (
+                <>
+                  <div className="rounded-xl bg-success/[0.08] border border-success/25 px-4 py-3">
+                    <p className="text-sm font-semibold text-success">
+                      {multiStudentCount} student{multiStudentCount === 1 ? '' : 's'} extracted
+                    </p>
+                    <p className="text-xs text-success/80 mt-0.5">
+                      Review every row below. Nothing has been saved automatically.
+                    </p>
+                  </div>
+
+                  {multiWarning && (
+                    <div className="rounded-xl bg-warning/[0.08] border border-warning/25 px-4 py-3">
+                      <p className="text-xs font-semibold text-warning">Extraction warning</p>
+                      <p className="text-[11px] text-warning/80 mt-1">{multiWarning}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-[11px] font-semibold text-ink-faint mb-2">Audit transcript</p>
+                    <pre className="whitespace-pre-wrap text-xs text-ink-soft bg-surface-2 rounded-xl p-3 max-h-[240px] overflow-y-auto text-mono">{multiAuditText}</pre>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-ink-faint gap-2 text-center">
+                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.25} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3 0h6M12 15.75a3 3 0 01-3-3V5.25a3 3 0 116 0v7.5a3 3 0 01-3 3z" />
+                  </svg>
+                  <span className="text-sm font-medium text-ink-soft">Record several students in one continuous entry</span>
+                  <span className="text-xs">Extracted rows, the transcript, and any warning will appear here for review.</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Scan Results */}
+          {!isVoiceMultiMode && (
           <div className="neu-card p-5 sm:p-6 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="font-gujarati-serif text-sm font-semibold">વાંચેલી વિગતો</h2>
@@ -668,13 +891,13 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                       <span className="text-[11px] text-ink-faint text-mono">{parsedCount.total} filled</span>
                     </div>
                     <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
-                      {PARSEABLE_FIELDS.map((field) => {
+                      {GR_RECORD_FIELD_ORDER.map((field) => {
                         const p = selectedParsedFields[field]
                         if (!p) return null
                         return (
                           <div key={field} className="flex items-start gap-2 text-sm">
                             <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${confidenceClass(p.confidence)}`} />
-                            <span className="text-ink-faint text-xs font-medium min-w-[80px]">{FIELD_LABELS[field].split(' /')[0]}</span>
+                            <span className="text-ink-faint text-xs font-medium min-w-[80px]">{GR_RECORD_FIELD_LABELS[field].split(' /')[0]}</span>
                             <span className="text-ink text-xs font-medium">{p.value}</span>
                           </div>
                         )
@@ -721,9 +944,51 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
+      {isVoiceMultiMode && (
+        <div className="space-y-4">
+          {batchError && (
+            <div className="neu-card-flat p-4" style={{ borderColor: '#a8322b' }} role="alert">
+              <p className="text-sm font-semibold text-error">Couldn&apos;t save this batch</p>
+              <p className="text-xs text-ink-soft mt-1">{batchError}</p>
+            </div>
+          )}
+
+          {batchResult && batchSummary && (
+            <div className="neu-card p-5 sm:p-6" role="status" aria-live="polite">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-ink">Batch save finished</p>
+                  <p className="text-xs text-ink-soft mt-1">{batchSummary}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push('/dashboard/records')}
+                  className="neu-btn neu-btn-primary shrink-0"
+                >
+                  Return to records
+                </button>
+              </div>
+            </div>
+          )}
+
+          <VoiceBatchReview
+            records={multiRecords}
+            outcomes={batchResult?.rows}
+            disabled={saving || scanBusy || batchResult !== null}
+            saving={batchSaving}
+            onChange={handleVoiceBatchChange}
+            onSave={handleVoiceBatchSave}
+            onDiscardAll={discardVoiceBatch}
+          />
+        </div>
+      )}
+
+      {!isVoiceMultiMode && (
+        <>
       {/* Edit mode image */}
       {mode === 'edit' && form.image_url && (
         <div className="neu-card p-5 sm:p-6">
@@ -824,7 +1089,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           <button
             id="form-submit"
             type="submit"
-            disabled={saving || scanBusy || needsRecordSelection}
+            disabled={saving || batchSaving || scanBusy || needsRecordSelection}
             className="neu-btn neu-btn-primary w-full sm:w-auto"
           >
             {saving
@@ -839,6 +1104,8 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
           </button>
         </div>
       </div>
+        </>
+      )}
     </form>
   )
 }

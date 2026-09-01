@@ -25,6 +25,63 @@ export interface GRRecordData {
   ocr_raw_text: string
 }
 
+export const GR_RECORD_FIELD_ORDER = [
+  'gr_number',
+  'student_name',
+  'fathers_name',
+  'mothers_name',
+  'surname',
+  'religion',
+  'caste_category',
+  'date_of_birth',
+  'dob_in_words',
+  'birth_place',
+  'address',
+  'previous_school',
+  'admission_date',
+  'admission_standard',
+  'progress_and_conduct',
+  'leaving_date',
+  'leaving_reason',
+  'leaving_standard',
+  'remarks',
+] as const satisfies readonly (keyof ParsedGRFields)[]
+
+export type GRRecordField = (typeof GR_RECORD_FIELD_ORDER)[number]
+
+export const GR_RECORD_REQUIRED_FIELDS = [
+  'gr_number',
+  'student_name',
+  'fathers_name',
+  'surname',
+  'date_of_birth',
+  'admission_date',
+] as const satisfies readonly GRRecordField[]
+
+export type GRRecordRequiredField = (typeof GR_RECORD_REQUIRED_FIELDS)[number]
+
+export const GR_RECORD_FIELD_LABELS = {
+  gr_number: 'રજિસ્ટર નંબર / GR Number',
+  student_name: 'વિદ્યાર્થીનું નામ / Student Name',
+  fathers_name: 'પિતાનું નામ / Father\'s Name',
+  mothers_name: 'માતાનું નામ / Mother\'s Name',
+  surname: 'અટક / Surname',
+  religion: 'ધર્મ / Religion',
+  caste_category: 'જ્ઞાતિ / Caste',
+  date_of_birth: 'જન્મ તારીખ (અંકમાં) / DOB',
+  dob_in_words: 'જન્મ તારીખ (શબ્દોમાં) / DOB in Words',
+  birth_place: 'જન્મ સ્થળ / Birth Place',
+  address: 'ગામ / Village',
+  previous_school: 'છેલ્લી શાળા / Previous School',
+  admission_date: 'દાખલ થયા તારીખ / Admission Date',
+  admission_standard: 'દાખલ થયા ધોરણ / Admission Std.',
+  progress_and_conduct: 'પ્રગતિ અને વર્તન / Progress & Conduct',
+  leaving_date: 'શાળા છોડ્યા તારીખ / Leaving Date',
+  leaving_reason: 'છોડવાનું કારણ / Reason for Leaving',
+  leaving_standard: 'છોડતી વખતે ધોરણ / Leaving Std.',
+  remarks: 'રીમાર્ક્સ / શેરો / Remarks',
+} as const satisfies Record<GRRecordField, string>
+
 export const EMPTY_GR_RECORD: GRRecordData = {
   gr_number: '',
   student_name: '',
@@ -88,3 +145,5 @@ export function buildGRRecordPayload(form: GRRecordData) {
     ocr_raw_text: form.ocr_raw_text.trim() || null,
   }
 }
+
+export type GRRecordPayload = ReturnType<typeof buildGRRecordPayload>
