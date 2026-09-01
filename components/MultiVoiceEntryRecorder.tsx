@@ -523,7 +523,7 @@ export default function MultiVoiceEntryRecorder({
             <button
               type="button"
               onClick={stopRecording}
-              disabled={finishing || disabled}
+              disabled={finishing}
               className="neu-btn neu-btn-danger w-full"
             >
               {finishing ? 'Finishing recording…' : 'Stop recording'}
