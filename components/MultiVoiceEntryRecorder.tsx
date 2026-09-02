@@ -78,6 +78,42 @@ function describeMicrophoneError(error: unknown): string {
   }
 }
 
+const MULTI_EXTRACTION_TIMEOUT_MESSAGE =
+  'Voice extraction timed out before the student entries were returned. Nothing was saved. ' +
+  'Try “Extract student entries” again. If it times out again, re-record a shorter batch—' +
+  'prefer six or fewer students with clear “Entry one / Entry two” boundaries.'
+
+function readVoiceApiError(body: unknown): VoiceApiErrorResponse | null {
+  if (
+    body === null ||
+    typeof body !== 'object' ||
+    !('error' in body) ||
+    typeof body.error !== 'string'
+  ) return null
+  return body as VoiceApiErrorResponse
+}
+
+function describeExtractionResponseError(status: number, body: unknown): string {
+  const apiError = readVoiceApiError(body)?.error.trim() || null
+  if (status === 504 || /\b(?:timeout|timed out)\b/i.test(apiError ?? '')) {
+    return MULTI_EXTRACTION_TIMEOUT_MESSAGE
+  }
+  if (apiError) return apiError
+  if (status >= 500) {
+    return `Voice extraction failed on the server (HTTP ${status}). Nothing was saved. Try again or re-record a shorter batch.`
+  }
+  return `Voice extraction failed (HTTP ${status}). Nothing was saved.`
+}
+
+function describeExtractionSubmissionError(error: unknown): string {
+  if (error instanceof TypeError) {
+    return 'Could not reach the voice extraction service. Nothing was saved. Check your connection and try again.'
+  }
+  return error instanceof Error
+    ? error.message
+    : 'Voice extraction failed. Nothing was saved. Try the batch again.'
+}
+
 export default function MultiVoiceEntryRecorder({
   disabled = false,
   language,
@@ -350,14 +386,14 @@ export default function MultiVoiceEntryRecorder({
         body: formData,
         signal: controller.signal,
       })
-      const body = await response.json() as VoiceMultiEntryResponse | VoiceApiErrorResponse
+      const body: unknown = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error(typeof body.error === 'string' && body.error ? body.error : 'Voice extraction failed.')
+        throw new Error(describeExtractionResponseError(response.status, body))
       }
       if (!mountedRef.current || controller.signal.aborted || requestId !== requestGenerationRef.current) return
 
       const extracted = body as VoiceMultiEntryResponse
-      if (extracted.mode !== 'multi' || !Array.isArray(extracted.students)) {
+      if (!extracted || extracted.mode !== 'multi' || !Array.isArray(extracted.students)) {
         throw new Error('The server returned the wrong voice-entry mode. Record the batch again.')
       }
       if (extracted.students.length === 0) {
@@ -374,7 +410,7 @@ export default function MultiVoiceEntryRecorder({
       onComplete?.(extracted)
     } catch (submitError) {
       if (controller.signal.aborted || !mountedRef.current || requestId !== requestGenerationRef.current) return
-      setError(submitError instanceof Error ? submitError.message : 'Voice extraction failed. Try the batch again.')
+      setError(describeExtractionSubmissionError(submitError))
     } finally {
       if (submitControllerRef.current === controller) submitControllerRef.current = null
       if (mountedRef.current && requestId === requestGenerationRef.current) setProcessing(false)
@@ -598,7 +634,7 @@ export default function MultiVoiceEntryRecorder({
       )}
 
       <div className="text-[11px] text-ink-faint leading-relaxed border-t border-line pt-3">
-        Audio is sent only for extraction and is not persisted. Names stay in Latin script and all rows require human review.
+        Audio is sent only for extraction and is not persisted by Digital GR. Extraction returns separate English and ગુજરાતી values; English names remain in Latin script and Gujarati names are rendered phonetically. Review every row—nothing is saved until you choose “Save reviewed records.”
       </div>
     </div>
   )

@@ -73,6 +73,32 @@ function describeMicrophoneError(error: unknown): string {
   }
 }
 
+function describeGroupExtractionResponseError(status: number, body: unknown): string {
+  const apiError = body !== null &&
+    typeof body === 'object' &&
+    'error' in body &&
+    typeof body.error === 'string'
+    ? (body as VoiceApiErrorResponse).error.trim()
+    : ''
+  if (status === 504 || /\b(?:timeout|timed out)\b/i.test(apiError)) {
+    return 'Voice extraction timed out before this group was returned. Nothing was saved. Try again with a shorter, clearer recording.'
+  }
+  if (apiError) return apiError
+  if (status >= 500) {
+    return `Voice extraction failed on the server (HTTP ${status}). Nothing was saved. Try this group again.`
+  }
+  return `Voice extraction failed (HTTP ${status}). Nothing was saved.`
+}
+
+function describeGroupSubmissionError(error: unknown): string {
+  if (error instanceof TypeError) {
+    return 'Could not reach the voice extraction service. Nothing was saved. Check your connection and try this group again.'
+  }
+  return error instanceof Error
+    ? error.message
+    : 'Voice extraction failed. Nothing was saved. Try this group again.'
+}
+
 function elapsedLabel(seconds: number): string {
   const minutes = Math.floor(seconds / 60)
   const remainder = seconds % 60
@@ -315,14 +341,14 @@ export default function VoiceEntryRecorder({
         body: formData,
         signal: controller.signal,
       })
-      const body = await response.json() as VoiceEntryResponse | VoiceApiErrorResponse
+      const body: unknown = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error(typeof body.error === 'string' && body.error ? body.error : 'Voice extraction failed.')
+        throw new Error(describeGroupExtractionResponseError(response.status, body))
       }
       if (!mountedRef.current || controller.signal.aborted || requestId !== requestGenerationRef.current) return
 
       const result = body as VoiceEntryResponse
-      if (result.group !== currentGroup) throw new Error('The server returned a different voice group. Record this group again.')
+      if (!result || result.group !== currentGroup) throw new Error('The server returned a different voice group. Record this group again.')
       setResults((previous) => ({ ...previous, [currentGroup]: result }))
       setSkipped((previous) => {
         const next = new Set(previous)
@@ -332,7 +358,7 @@ export default function VoiceEntryRecorder({
       onGroupComplete(result)
     } catch (submitError) {
       if (controller.signal.aborted || !mountedRef.current || requestId !== requestGenerationRef.current) return
-      setError(submitError instanceof Error ? submitError.message : 'Voice extraction failed. Try this group again.')
+      setError(describeGroupSubmissionError(submitError))
     } finally {
       if (submitControllerRef.current === controller) submitControllerRef.current = null
       if (mountedRef.current && requestId === requestGenerationRef.current) setProcessing(false)
@@ -641,7 +667,7 @@ export default function VoiceEntryRecorder({
       )}
 
       <div className="text-[11px] text-ink-faint leading-relaxed border-t border-line pt-3">
-        Microphone recording requires HTTPS or localhost. Names stay in Latin script as spoken and are always marked for human review.
+        Microphone recording requires HTTPS or localhost. Extraction returns separate English and ગુજરાતી values; English names remain in Latin script and Gujarati names are rendered phonetically. Every value requires human review.
       </div>
     </div>
   )

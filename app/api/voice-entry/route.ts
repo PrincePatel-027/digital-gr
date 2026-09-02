@@ -50,6 +50,16 @@ const rateBuckets = (
 ).__digitalGrVoiceRateBuckets ?? new Map<string, RateBucket>()
 ;(globalThis as GlobalWithVoiceRateLimit).__digitalGrVoiceRateBuckets = rateBuckets
 
+const VOICE_PIPELINE_TIMEOUT_PATTERN = /\b(?:timeout|timed out)\b/i
+const VOICE_EXTRACTION_TIMEOUT_MESSAGE =
+  'Voice extraction timed out before the model returned a result. Nothing was saved. ' +
+  'Try again with a shorter, clearer recording.'
+
+function isVoicePipelineTimeout(error: VoicePipelineError): boolean {
+  return VOICE_PIPELINE_TIMEOUT_PATTERN.test(error.message) ||
+    error.warnings.some((warning) => VOICE_PIPELINE_TIMEOUT_PATTERN.test(warning))
+}
+
 class VoiceRequestError extends Error {
   constructor(
     message: string,
@@ -268,7 +278,12 @@ export async function POST(req: NextRequest) {
     }
     if (error instanceof VoicePipelineError) {
       console.error('Voice pipeline error:', error.message)
-      return json({ error: error.message }, 502)
+      if (isVoicePipelineTimeout(error)) {
+        return json({ error: VOICE_EXTRACTION_TIMEOUT_MESSAGE }, 504)
+      }
+      return json({
+        error: 'Voice extraction failed before a result was returned. Nothing was saved. Try again.',
+      }, 502)
     }
 
     const message = error instanceof Error ? error.message : String(error)
