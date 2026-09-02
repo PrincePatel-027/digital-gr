@@ -5,6 +5,10 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { formatGujaratLocationLabel } from '@/lib/gujarat-locations'
+import { GR_RECORD_FIELD_ORDER, type GRRecordField } from '@/lib/gr-record-data'
+import { parseVoiceEnglishMetadata } from '@/lib/voice-bilingual'
+import type { VoiceEnglishMetadata, VoiceFieldSource, VoiceScript } from '@/lib/voice-types'
 import { toGujaratiDigits, formatRegisterDate } from '@/lib/gujarati'
 
 interface GRRecordData {
@@ -23,6 +27,8 @@ interface GRRecordData {
   birth_place: string
   address: string
   previous_school: string
+  previous_school_district: string
+  previous_school_subdistrict: string
   // Right page — શૈક્ષણિક વિગતો
   admission_date: string
   admission_standard: string
@@ -34,7 +40,16 @@ interface GRRecordData {
   // System
   image_url: string | null
   ocr_raw_text: string | null
+  fields_en: VoiceEnglishMetadata | null
   created_at: string
+}
+
+const SOURCE_LABELS: Record<VoiceFieldSource, string> = {
+  ai: 'AI',
+  'canonical-lgd': 'LGD',
+  shared: 'Shared',
+  clerk: 'Edited',
+  'single-script': 'Single script',
 }
 
 /** One ruled line of the register: Gujarati caption, English sub-caption, value. */
@@ -44,18 +59,25 @@ function Entry({
   value,
   mono,
   wide,
+  source,
 }: {
   gu: string
   en: string
   value?: string | null
   mono?: boolean
   wide?: boolean
+  source?: VoiceFieldSource
 }) {
   return (
     <div className={`py-2.5 border-b border-rule ${wide ? 'sm:col-span-2' : ''}`}>
       <dt>
         <span className="label-gu">{gu}</span>
         <span className="label-en">{en}</span>
+        {source && (
+          <span className="neu-badge bg-surface-2 text-ink-soft text-[9px] px-1.5 py-0.5 mt-1" title={`Value source: ${SOURCE_LABELS[source]}`}>
+            {SOURCE_LABELS[source]}
+          </span>
+        )}
       </dt>
       <dd className={`field-value mt-1 ${mono ? 'text-mono' : 'font-gujarati'}`}>
         {value ? value : <span className="text-ink-faint font-normal text-sm">—</span>}
@@ -77,6 +99,7 @@ export default function RecordDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [showRaw, setShowRaw] = useState(false)
+  const [detailScript, setDetailScript] = useState<VoiceScript>('gu')
 
   useEffect(() => {
     if (!recordId || !profile) return
@@ -86,7 +109,7 @@ export default function RecordDetailPage() {
       if (fetchErr) {
         setError(fetchErr.message)
       } else if (data) {
-        setRecord(data)
+        setRecord({ ...data, fields_en: parseVoiceEnglishMetadata(data.fields_en) })
         if (data.image_url) {
           const { data: urlData } = await supabase.storage.from('gr-images').createSignedUrl(data.image_url, 60 * 60)
           if (urlData?.signedUrl) setImageUrl(urlData.signedUrl)
@@ -145,6 +168,17 @@ export default function RecordDetailPage() {
   const canDelete = profile?.role === 'school_admin'
   const hasLeft = !!record.leaving_date
   const hasSpokenAudit = record.ocr_raw_text?.includes('===== SPOKEN (') ?? false
+  const hasEnglishMetadata = Boolean(record.fields_en && Object.keys(record.fields_en).length > 0)
+  const displayValues = Object.fromEntries(GR_RECORD_FIELD_ORDER.map((field) => {
+    const mainValue = record[field]
+    const value = detailScript === 'en'
+      ? record.fields_en?.[field]?.value ?? mainValue
+      : mainValue
+    if (field === 'previous_school_district' || field === 'previous_school_subdistrict') {
+      return [field, formatGujaratLocationLabel(mainValue, detailScript)]
+    }
+    return [field, value]
+  })) as Record<GRRecordField, string>
 
   return (
     <div className="space-y-5">
@@ -171,20 +205,25 @@ export default function RecordDetailPage() {
                 {profile?.schools?.name} · રજી. નં {toGujaratiDigits(record.gr_number)}
               </p>
               <h1 className="font-gujarati-serif text-2xl sm:text-3xl leading-tight">
-                {record.student_name} {record.surname}
+                {displayValues.student_name} {displayValues.surname}
               </h1>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs">
-                {record.admission_standard && (
-                  <span className="font-gujarati text-ink-soft">
-                    ધોરણ <span className="font-semibold text-ink">{toGujaratiDigits(record.admission_standard)}</span>
+                {displayValues.admission_standard && (
+                  <span className={detailScript === 'gu' ? 'font-gujarati text-ink-soft' : 'text-ink-soft'}>
+                    {detailScript === 'gu' ? 'ધોરણ' : 'Standard'}{' '}
+                    <span className="font-semibold text-ink">
+                      {detailScript === 'gu' ? toGujaratiDigits(displayValues.admission_standard) : displayValues.admission_standard}
+                    </span>
                   </span>
                 )}
                 {hasLeft ? (
-                  <span className="font-gujarati font-semibold text-red-ink">
-                    છોડી ગયા · {formatRegisterDate(record.leaving_date)}
+                  <span className={`${detailScript === 'gu' ? 'font-gujarati' : ''} font-semibold text-red-ink`}>
+                    {detailScript === 'gu' ? 'છોડી ગયા' : 'Left'} · {formatRegisterDate(displayValues.leaving_date)}
                   </span>
                 ) : (
-                  <span className="font-gujarati font-semibold text-accent">ચાલુ</span>
+                  <span className={`${detailScript === 'gu' ? 'font-gujarati' : ''} font-semibold text-accent`}>
+                    {detailScript === 'gu' ? 'ચાલુ' : 'Current'}
+                  </span>
                 )}
                 <span className="text-ink-faint">
                   Added {formatRegisterDate(record.created_at.slice(0, 10))}
@@ -221,6 +260,38 @@ export default function RecordDetailPage() {
         </div>
       )}
 
+      {hasEnglishMetadata && (
+        <div className="neu-card p-4 no-print">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-ink">Record script</p>
+              <p className="text-[11px] text-ink-soft mt-0.5">Switch locally between the reviewed Gujarati columns and preserved English voice values.</p>
+            </div>
+            <div className="inline-grid grid-cols-2 gap-1 self-start" role="group" aria-label="Record detail script">
+              <button
+                type="button"
+                onClick={() => setDetailScript('gu')}
+                aria-pressed={detailScript === 'gu'}
+                className={`neu-btn px-3 py-2 text-xs ${detailScript === 'gu' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+              >
+                ગુજરાતી
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailScript('en')}
+                aria-pressed={detailScript === 'en'}
+                className={`neu-btn px-3 py-2 text-xs ${detailScript === 'en' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+              >
+                English
+              </button>
+            </div>
+          </div>
+          <p className="sr-only" aria-live="polite" aria-atomic="true">
+            {detailScript === 'gu' ? 'Showing Gujarati record values.' : 'Showing preserved English record values.'}
+          </p>
+        </div>
+      )}
+
       {/* ══ THE SPREAD: પત્રક ૪ | પત્રક ૫ ═════════════════════ */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
         {/* Left page */}
@@ -233,18 +304,30 @@ export default function RecordDetailPage() {
             <span className="eyebrow">૪</span>
           </header>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 px-5 pb-4">
-            <Entry gu="રજીસ્ટર નંબર" en="GR number" value={record.gr_number} mono />
-            <Entry gu="પુરૂં નામ" en="Student name" value={record.student_name} />
-            <Entry gu="અટક" en="Surname" value={record.surname} />
-            <Entry gu="પિતાનું નામ" en="Father's name" value={record.fathers_name} />
-            <Entry gu="માતાનું નામ" en="Mother's name" value={record.mothers_name} />
-            <Entry gu="ધર્મ" en="Religion" value={record.religion} />
-            <Entry gu="જ્ઞાતિ / જાત" en="Caste" value={record.caste_category} />
-            <Entry gu="જન્મ તારીખ" en="Date of birth" value={formatRegisterDate(record.date_of_birth)} mono />
-            <Entry gu="જન્મ તારીખ (શબ્દોમાં)" en="DOB in words" value={record.dob_in_words} wide />
-            <Entry gu="જન્મભૂમિ" en="Birth place" value={record.birth_place} />
-            <Entry gu="ગામ / રહેઠાણ" en="Village / address" value={record.address} />
-            <Entry gu="છેલ્લી નિશાળ" en="Previous school" value={record.previous_school} wide />
+            <Entry gu="રજીસ્ટર નંબર" en="GR number" value={displayValues.gr_number} mono />
+            <Entry gu="પુરૂં નામ" en="Student name" value={displayValues.student_name} source={detailScript === 'en' ? record.fields_en?.student_name?.source : undefined} />
+            <Entry gu="અટક" en="Surname" value={displayValues.surname} source={detailScript === 'en' ? record.fields_en?.surname?.source : undefined} />
+            <Entry gu="પિતાનું નામ" en="Father's name" value={displayValues.fathers_name} source={detailScript === 'en' ? record.fields_en?.fathers_name?.source : undefined} />
+            <Entry gu="માતાનું નામ" en="Mother's name" value={displayValues.mothers_name} source={detailScript === 'en' ? record.fields_en?.mothers_name?.source : undefined} />
+            <Entry gu="ધર્મ" en="Religion" value={displayValues.religion} source={detailScript === 'en' ? record.fields_en?.religion?.source : undefined} />
+            <Entry gu="જ્ઞાતિ / જાત" en="Caste" value={displayValues.caste_category} source={detailScript === 'en' ? record.fields_en?.caste_category?.source : undefined} />
+            <Entry gu="જન્મ તારીખ" en="Date of birth" value={formatRegisterDate(displayValues.date_of_birth)} mono />
+            <Entry gu="જન્મ તારીખ (શબ્દોમાં)" en="DOB in words" value={displayValues.dob_in_words} source={detailScript === 'en' ? record.fields_en?.dob_in_words?.source : undefined} wide />
+            <Entry gu="જન્મભૂમિ" en="Birth place" value={displayValues.birth_place} source={detailScript === 'en' ? record.fields_en?.birth_place?.source : undefined} />
+            <Entry gu="ગામ / રહેઠાણ" en="Village / address" value={displayValues.address} source={detailScript === 'en' ? record.fields_en?.address?.source : undefined} />
+            <Entry gu="છેલ્લી નિશાળ" en="Previous school" value={displayValues.previous_school} source={detailScript === 'en' ? record.fields_en?.previous_school?.source : undefined} wide />
+            <Entry
+              gu="છેલ્લી શાળાનો જિલ્લો"
+              en="Previous-school district"
+              value={displayValues.previous_school_district}
+              source={detailScript === 'en' ? record.fields_en?.previous_school_district?.source : undefined}
+            />
+            <Entry
+              gu="છેલ્લી શાળાનો તાલુકો"
+              en="Previous-school taluka"
+              value={displayValues.previous_school_subdistrict}
+              source={detailScript === 'en' ? record.fields_en?.previous_school_subdistrict?.source : undefined}
+            />
           </dl>
         </section>
 
@@ -258,21 +341,27 @@ export default function RecordDetailPage() {
             <span className="eyebrow">૫</span>
           </header>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 px-5 pb-4">
-            <Entry gu="દાખલ થયા તારીખ" en="Admission date" value={formatRegisterDate(record.admission_date)} mono />
+            <Entry gu="દાખલ થયા તારીખ" en="Admission date" value={formatRegisterDate(displayValues.admission_date)} mono />
             <Entry
               gu="દાખલ થયા ધોરણ"
               en="Admission standard"
-              value={record.admission_standard ? toGujaratiDigits(record.admission_standard) : ''}
+              value={displayValues.admission_standard
+                ? detailScript === 'gu' ? toGujaratiDigits(displayValues.admission_standard) : displayValues.admission_standard
+                : ''}
+              source={detailScript === 'en' ? record.fields_en?.admission_standard?.source : undefined}
             />
-            <Entry gu="પ્રગતિ અને વર્તન" en="Progress & conduct" value={record.progress_and_conduct} wide />
-            <Entry gu="નિશાળ છોડ્યા તારીખ" en="Leaving date" value={formatRegisterDate(record.leaving_date)} mono />
+            <Entry gu="પ્રગતિ અને વર્તન" en="Progress & conduct" value={displayValues.progress_and_conduct} source={detailScript === 'en' ? record.fields_en?.progress_and_conduct?.source : undefined} wide />
+            <Entry gu="નિશાળ છોડ્યા તારીખ" en="Leaving date" value={formatRegisterDate(displayValues.leaving_date)} mono />
             <Entry
               gu="છોડ્યા ત્યારે ધોરણ"
               en="Standard when leaving"
-              value={record.leaving_standard ? toGujaratiDigits(record.leaving_standard) : ''}
+              value={displayValues.leaving_standard
+                ? detailScript === 'gu' ? toGujaratiDigits(displayValues.leaving_standard) : displayValues.leaving_standard
+                : ''}
+              source={detailScript === 'en' ? record.fields_en?.leaving_standard?.source : undefined}
             />
-            <Entry gu="છોડવાનું કારણ" en="Reason for leaving" value={record.leaving_reason} wide />
-            <Entry gu="શેરો / રીમાર્ક્સ" en="Remarks" value={record.remarks} wide />
+            <Entry gu="છોડવાનું કારણ" en="Reason for leaving" value={displayValues.leaving_reason} source={detailScript === 'en' ? record.fields_en?.leaving_reason?.source : undefined} wide />
+            <Entry gu="શેરો / રીમાર્ક્સ" en="Remarks" value={displayValues.remarks} source={detailScript === 'en' ? record.fields_en?.remarks?.source : undefined} wide />
           </dl>
         </section>
       </div>

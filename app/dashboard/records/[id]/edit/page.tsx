@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { parseVoiceEnglishMetadata } from '@/lib/voice-bilingual'
 import GRRecordForm, { type GRRecordData } from '@/components/GRRecordForm'
 
 export default function EditRecordPage() {
@@ -56,6 +57,8 @@ export default function EditRecordPage() {
           birth_place: data.birth_place || '',
           address: data.address || '',
           previous_school: data.previous_school || '',
+          previous_school_district: data.previous_school_district || '',
+          previous_school_subdistrict: data.previous_school_subdistrict || '',
           // Right page — શૈક્ષણિક વિગતો
           admission_date: data.admission_date || '',
           admission_standard: data.admission_standard || '',
@@ -67,6 +70,7 @@ export default function EditRecordPage() {
           // System
           image_url: data.image_url || '',
           ocr_raw_text: data.ocr_raw_text || '',
+          fields_en: parseVoiceEnglishMetadata(data.fields_en),
         })
       }
       setLoading(false)

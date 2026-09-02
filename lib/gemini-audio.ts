@@ -5,8 +5,8 @@ import {
   STRING_FIELDS,
   fetchWithRetry,
   toParsedRecord,
-  toParsedRecords,
 } from './extract-shared'
+import { createVoiceBilingualFields } from './voice-bilingual'
 import {
   fieldsForVoiceGroup,
   normalizeSpokenDate,
@@ -16,9 +16,11 @@ import {
 } from './voice-fields'
 import type { ParsedGRFields } from './ocr-parser'
 import type {
+  VoiceBilingualFields,
   VoiceEntryMode,
   VoiceGroupId,
   VoiceLanguage,
+  VoiceScript,
 } from './voice-types'
 
 /**
@@ -63,12 +65,12 @@ interface GeminiVoiceResultBase {
 
 export interface GeminiAudioResult extends GeminiVoiceResultBase {
   mode: 'single'
-  fields: ParsedGRFields
+  fields: VoiceBilingualFields
 }
 
 export interface GeminiMultiAudioResult extends GeminiVoiceResultBase {
   mode: 'multi'
-  students: ParsedGRFields[]
+  students: VoiceBilingualFields[]
 }
 
 export type GeminiVoiceResult = GeminiAudioResult | GeminiMultiAudioResult
@@ -100,10 +102,21 @@ export function isGeminiAudioConfigured(): boolean {
   return Boolean(process.env.GEMINI_API_KEY)
 }
 
-function stringFieldSchema(field: keyof ParsedGRFields) {
+function bilingualFieldSchema(field: keyof ParsedGRFields) {
   return {
-    type: 'STRING',
-    description: `${FIELD_DESCRIPTIONS[field]} For voice entry, preserve Latin spelling exactly as spoken and use an empty string when absent.`,
+    type: 'OBJECT',
+    description: FIELD_DESCRIPTIONS[field],
+    properties: {
+      en: {
+        type: 'STRING',
+        description: 'Faithful English/Latin-script value from the audio, or an empty string when absent or uncertain.',
+      },
+      gu: {
+        type: 'STRING',
+        description: 'Gujarati-script rendering from the same spoken value, or an empty string when absent or uncertain.',
+      },
+    },
+    required: ['en', 'gu'],
   }
 }
 
@@ -118,7 +131,7 @@ function singleResponseSchema(group: VoiceGroupId) {
       },
       fields: {
         type: 'OBJECT',
-        properties: Object.fromEntries(groupFields.map((field) => [field, stringFieldSchema(field)])),
+        properties: Object.fromEntries(groupFields.map((field) => [field, bilingualFieldSchema(field)])),
         required: [...groupFields],
       },
     },
@@ -139,7 +152,7 @@ function multiResponseSchema() {
         description: 'One complete object per student, in the order spoken.',
         items: {
           type: 'OBJECT',
-          properties: Object.fromEntries(STRING_FIELDS.map((field) => [field, stringFieldSchema(field)])),
+          properties: Object.fromEntries(STRING_FIELDS.map((field) => [field, bilingualFieldSchema(field)])),
           required: [...STRING_FIELDS],
         },
       },
@@ -150,14 +163,19 @@ function multiResponseSchema() {
 
 function commonVoiceRules(language: VoiceLanguage): string {
   return `The audio is spoken English (${language}).
-- Never invent, infer, translate, or silently correct a value. Use "" when a value was not spoken or is uncertain.
-- Store every name in Latin script exactly as spoken. Do not transliterate it into Gujarati or another script.
+- Every field value is an object with both "en" and "gu" strings derived from this same audio response.
+- Never invent, infer, or silently correct a value. Use "" in the uncertain script rather than guessing.
+- Put the faithful English/Latin-script value in "en".
+- Put the Gujarati-script value in "gu". Transliterate every proper noun phonetically from the pronunciation heard in the audio; never translate a proper noun's meaning. If its pronunciation is not clear enough to transliterate, return "" for "gu".
+- Translate ordinary descriptive phrases into Gujarati without changing their meaning.
+- For gr_number, date_of_birth, admission_date, and leaving_date, return the same normalized Western-digit value in both scripts; these identity/date values must never be transliterated.
+- For previous_school_district and previous_school_subdistrict, return the spoken location names in both scripts. The application resolves them to canonical LGD keys locally; do not invent a code.
 - A two-part student full name such as "Jagdish Dixit" means student_name "Jagdish" and surname "Dixit". A three-part register name is <student given name> <father given name> <surname>.
 - Explicit labels such as "father", "mother", "surname", and "GR number" override positional splitting.
 - Dates are day-first Indian dates. Convert spoken dates to YYYY-MM-DD: "sixth January two thousand sixteen" and "six one twenty sixteen" both mean 2016-01-06. Reject impossible dates.
-- Standards/classes must be digits 1 through 12: "standard one" means "1".
+- Standards/classes must be Western digits 1 through 12: "standard one" means "1" in both scripts.
 - GR numbers and other spoken numbers must use Western digits.
-- The transcript must not be empty, summarized, translated, or replaced by extracted fields.`
+- The transcript must be a faithful Latin-script record of the complete utterance; it must not be empty, summarized, translated, or replaced by extracted fields.`
 }
 
 function singleVoicePrompt(group: VoiceGroupId, language: VoiceLanguage): string {
@@ -196,17 +214,37 @@ function isLatinName(value: string): boolean {
   return /\p{Script=Latin}/u.test(value) && !/[^\p{Script=Latin}\p{Mark}\s.'’-]/u.test(value)
 }
 
+function isGujaratiName(value: string): boolean {
+  return /\p{Script=Gujarati}/u.test(value) && !/[^\p{Script=Gujarati}\p{Mark}\s.'’-]/u.test(value)
+}
+
+function rawScriptValue(
+  source: Record<string, unknown>,
+  field: keyof ParsedGRFields,
+  script: VoiceScript
+): string {
+  const raw = source[field]
+  if (raw && typeof raw === 'object') {
+    const value = (raw as Record<string, unknown>)[script]
+    return typeof value === 'string' ? value : ''
+  }
+  // Accept the old scalar shape only as English so a malformed/old response can
+  // never masquerade as an AI-generated Gujarati transliteration.
+  return script === 'en' && typeof raw === 'string' ? raw : ''
+}
+
 function normalizeRawFields(
   raw: unknown,
   allowedFields: readonly (keyof ParsedGRFields)[],
+  script: VoiceScript,
   splitStudentName: boolean
 ): Record<string, string> {
   const source = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const normalized: Record<string, string> = {}
 
   for (const field of allowedFields) {
-    const value = source[field]
-    if (typeof value !== 'string' || !value.trim()) continue
+    const value = rawScriptValue(source, field, script)
+    if (!value.trim()) continue
     let cleaned = value.trim()
 
     if (DATE_FIELDS.has(field) && !/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
@@ -216,16 +254,16 @@ function normalizeRawFields(
     } else if (field === 'gr_number') {
       const withoutLabel = cleaned.replace(/\b(?:g\s*r|general register|register)\s*(?:number|no\.?)?\b/gi, ' ')
       cleaned = normalizeSpokenNumber(withoutLabel) ?? ''
-    } else if (NAME_FIELDS.has(field) && !isLatinName(cleaned)) {
-      // Empty is safer than silently transliterating a name into a different script.
-      cleaned = ''
+    } else if (NAME_FIELDS.has(field)) {
+      const validName = script === 'en' ? isLatinName(cleaned) : isGujaratiName(cleaned)
+      if (!validName) cleaned = ''
     }
 
     if (cleaned) normalized[field] = cleaned
   }
 
-  // Defensive split if the model left a full name in student_name despite the schema
-  // instructions. Do not overwrite explicitly extracted father/surname values.
+  // Defensive split if the model left a full name in student_name despite the
+  // schema instructions. Do not overwrite explicitly extracted values.
   if (splitStudentName && normalized.student_name?.includes(' ')) {
     const split = splitSpokenFullName(normalized.student_name)
     if (split) {
@@ -253,8 +291,9 @@ function failedResult(
   model: string,
   error: string
 ): GeminiVoiceResult {
+  const emptyFields: VoiceBilingualFields = { en: {}, gu: {}, sources: {} }
   return mode === 'single'
-    ? { mode, transcript: '', fields: {}, model, error }
+    ? { mode, transcript: '', fields: emptyFields, model, error }
     : { mode, transcript: '', students: [], model, error }
 }
 
@@ -355,8 +394,13 @@ export async function extractVoice(
 
     if (options.mode === 'single') {
       const allowedFields = fieldsForVoiceGroup(options.group)
-      const fields = toParsedRecord(
-        normalizeRawFields(object.fields, allowedFields, options.group === 'identity'),
+      const parseScript = (script: VoiceScript) => toParsedRecord(
+        normalizeRawFields(
+          object.fields,
+          allowedFields,
+          script,
+          options.group === 'identity'
+        ),
         'high',
         {
           allowedFields,
@@ -364,18 +408,24 @@ export async function extractVoice(
           downgradeAdmissionLeavingAmbiguity: false,
         }
       ) ?? {}
+      const fields = createVoiceBilingualFields(parseScript('en'), parseScript('gu'))
       return { mode: 'single', transcript, fields, model }
     }
 
     const rawStudents = Array.isArray(object.students) ? object.students : []
-    const normalizedStudents = rawStudents.map((student) => (
-      normalizeRawFields(student, STRING_FIELDS, true)
-    ))
-    // Keep the existing collection mapper untouched; it remains the canonical
-    // complete-record sanitation and identity filter for OCR and multi voice.
-    // Live release spike (2026-08-30): a synthetic two-entry WAV reached
-    // gemini-3.7-flash, but Gemini returned HTTP 503 before segmentation.
-    const students = toParsedRecords(normalizedStudents, 'high')
+    const students = rawStudents.flatMap((student) => {
+      const en = toParsedRecord(
+        normalizeRawFields(student, STRING_FIELDS, 'en', true),
+        'high'
+      )
+      if (!en) return []
+      const gu = toParsedRecord(
+        normalizeRawFields(student, STRING_FIELDS, 'gu', true),
+        'high',
+        { requireIdentity: false }
+      ) ?? {}
+      return [createVoiceBilingualFields(en, gu)]
+    })
     return { mode: 'multi', transcript, students, model }
   } catch (error) {
     const message = timedOut

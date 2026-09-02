@@ -10,8 +10,8 @@ import {
 describe('voice field groups', () => {
   it('contains every GR field exactly once', () => {
     const fields = Object.values(VOICE_FIELD_GROUPS).flatMap((group) => [...group.fields])
-    expect(fields).toHaveLength(19)
-    expect(new Set(fields).size).toBe(19)
+    expect(fields).toHaveLength(21)
+    expect(new Set(fields).size).toBe(21)
   })
 })
 

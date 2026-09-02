@@ -1,4 +1,5 @@
 import type { ParsedGRFields } from './ocr-parser'
+import type { VoiceEnglishMetadata } from './voice-types'
 
 export interface GRRecordData {
   id?: string
@@ -14,6 +15,8 @@ export interface GRRecordData {
   birth_place: string
   address: string
   previous_school: string
+  previous_school_district: string
+  previous_school_subdistrict: string
   admission_date: string
   admission_standard: string
   progress_and_conduct: string
@@ -23,6 +26,7 @@ export interface GRRecordData {
   remarks: string
   image_url: string
   ocr_raw_text: string
+  fields_en: VoiceEnglishMetadata | null
 }
 
 export const GR_RECORD_FIELD_ORDER = [
@@ -38,6 +42,8 @@ export const GR_RECORD_FIELD_ORDER = [
   'birth_place',
   'address',
   'previous_school',
+  'previous_school_district',
+  'previous_school_subdistrict',
   'admission_date',
   'admission_standard',
   'progress_and_conduct',
@@ -73,6 +79,8 @@ export const GR_RECORD_FIELD_LABELS = {
   birth_place: 'જન્મ સ્થળ / Birth Place',
   address: 'ગામ / Village',
   previous_school: 'છેલ્લી શાળા / Previous School',
+  previous_school_district: 'છેલ્લી શાળાનો જિલ્લો / Previous School District',
+  previous_school_subdistrict: 'છેલ્લી શાળાનો તાલુકો / Previous School Taluka',
   admission_date: 'દાખલ થયા તારીખ / Admission Date',
   admission_standard: 'દાખલ થયા ધોરણ / Admission Std.',
   progress_and_conduct: 'પ્રગતિ અને વર્તન / Progress & Conduct',
@@ -95,6 +103,8 @@ export const EMPTY_GR_RECORD: GRRecordData = {
   birth_place: '',
   address: '',
   previous_school: '',
+  previous_school_district: '',
+  previous_school_subdistrict: '',
   admission_date: '',
   admission_standard: '',
   progress_and_conduct: '',
@@ -104,6 +114,7 @@ export const EMPTY_GR_RECORD: GRRecordData = {
   remarks: '',
   image_url: '',
   ocr_raw_text: '',
+  fields_en: null,
 }
 
 /** Pure value merge used by form extraction sources and payload tests. */
@@ -134,6 +145,8 @@ export function buildGRRecordPayload(form: GRRecordData) {
     birth_place: form.birth_place.trim() || null,
     address: form.address.trim() || null,
     previous_school: form.previous_school.trim() || null,
+    previous_school_district: form.previous_school_district.trim() || null,
+    previous_school_subdistrict: form.previous_school_subdistrict.trim() || null,
     admission_date: form.admission_date,
     admission_standard: form.admission_standard.trim() || null,
     progress_and_conduct: form.progress_and_conduct.trim() || null,

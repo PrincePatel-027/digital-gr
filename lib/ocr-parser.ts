@@ -24,6 +24,8 @@ export interface ParsedGRFields {
   birth_place?: ParsedField
   address?: ParsedField
   previous_school?: ParsedField
+  previous_school_district?: ParsedField
+  previous_school_subdistrict?: ParsedField
   admission_date?: ParsedField
   admission_standard?: ParsedField
   progress_and_conduct?: ParsedField

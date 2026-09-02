@@ -37,8 +37,8 @@ function options(overrides: Partial<{
 }
 
 describe('GR record batch metadata and preparation', () => {
-  it('shares all 19 ordered fields and the six required fields', () => {
-    expect(GR_RECORD_FIELD_ORDER).toHaveLength(19)
+  it('shares all 21 ordered fields and the six required fields', () => {
+    expect(GR_RECORD_FIELD_ORDER).toHaveLength(21)
     expect(GR_RECORD_REQUIRED_FIELDS).toEqual([
       'gr_number',
       'student_name',

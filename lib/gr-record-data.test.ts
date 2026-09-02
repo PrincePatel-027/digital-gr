@@ -35,6 +35,8 @@ describe('GR record payload mapping', () => {
       birth_place: null,
       address: null,
       previous_school: null,
+      previous_school_district: null,
+      previous_school_subdistrict: null,
       admission_date: '2022-06-10',
       admission_standard: '1',
       progress_and_conduct: null,

@@ -13,7 +13,8 @@ import type { ParsedGRFields, ParsedField } from './ocr-parser'
 export const STRING_FIELDS: (keyof ParsedGRFields)[] = [
   'gr_number', 'student_name', 'fathers_name', 'mothers_name', 'surname',
   'religion', 'caste_category', 'date_of_birth', 'dob_in_words', 'birth_place',
-  'address', 'previous_school', 'admission_date', 'admission_standard',
+  'address', 'previous_school', 'previous_school_district',
+  'previous_school_subdistrict', 'admission_date', 'admission_standard',
   'progress_and_conduct', 'leaving_date', 'leaving_reason', 'leaving_standard',
   'remarks',
 ]
@@ -53,6 +54,10 @@ export const FIELD_DESCRIPTIONS: Record<keyof ParsedGRFields, string> = {
     'Village / residence (ગામ / રહેઠાણ / વા-).',
   previous_school:
     'Previous school & standard admitted from ("કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા"). If the pupil is new, use "નવો".',
+  previous_school_district:
+    'District of the previous school. Return it only when explicitly present; never infer it from the school name or address.',
+  previous_school_subdistrict:
+    'Taluka / sub-district of the previous school. Return it only when explicitly present; never infer it from the school name or district.',
   admission_date:
     'Date of admission to THIS school — the FIRST column on the RIGHT page, "નિશાળમાં દાખલ થવાની તારીખ". Output YYYY-MM-DD. This unstarred admission column appears before the starred leaving columns. NEVER copy the date of birth here; if the admission column is blank, return "".',
   admission_standard:
@@ -90,6 +95,8 @@ const FIELD_SPEC = `Fields to return for each student (ALWAYS include every key;
   - birth_place: "જન્મભૂમિ" (birth place). Note this column is often OCR-merged with the date, e.g. "ભુ-ડરોબ 06-01-2016" → birth_place "ભુ-ડરોબ", date_of_birth "2016-01-06".
   - address: village / residence (ગામ / રહેઠાણ / વા-)
   - previous_school: "કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા" — the previous school; if it says the pupil is new (નવો), use "નવો"
+  - previous_school_district: district of the previous school, only when explicitly present; never infer it from another field
+  - previous_school_subdistrict: taluka / sub-district of the previous school, only when explicitly present; never infer it from another field
   - admission_date: date of admission to THIS school — YYYY-MM-DD
   - admission_standard: standard/class at admission (digits only, e.g. "1", "5")
   - progress_and_conduct: "પ્રગતિ અને વર્તન" notes
@@ -111,7 +118,7 @@ LEFT page (પત્રક ૪), columns in order:
   3. જાત તથા પેટા જાત        → religion + caste_category
   4. જન્મભૂમિ                 → birth_place
   5. જન્મ તારીખ (ઇસવીસન પ્રમાણે) → date_of_birth
-  6. કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા → previous_school
+  6. કઇ નિશાળ અને ધોરણમાંથી દાખલ થયા → previous_school; previous_school_district and previous_school_subdistrict only if explicitly written in this cell
 
 RIGHT page (પત્રક ૫), columns in order:
   7. નિશાળમાં દાખલ થવાની તારીખ → admission_date (first, unstarred column)

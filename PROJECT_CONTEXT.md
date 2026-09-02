@@ -18,11 +18,14 @@ kept by primary schools in Gujarat, India.
 The core idea: instead of relying on fragile paper registers (vulnerable to fire,
 flood, termites, and decay), a staff member either **photographs a register page** for
 Gujarati OCR/AI extraction or uses **English voice entry**: either four guided groups for
-one student or one free-form recording for several students. Every path requires the
-staff member to verify/correct values and explicitly save them to a secure, searchable,
-cloud-backed database. Multi-student voice results receive an editable batch review and
-are inserted sequentially so one bad row does not roll back successful rows. Scans remain
-attached; voice-only records intentionally have no image and submitted audio is never stored.
+one student or one free-form recording for several students. Gemini returns English and
+ગુજરાતી values together from the same audio response; clerks can switch scripts without a
+second conversion request and must view AI-sourced required names in Gujarati before save.
+Every path requires the staff member to verify/correct values and explicitly save them to a
+secure, searchable, cloud-backed database. Multi-student voice results receive an editable
+batch review and are inserted sequentially so one bad row does not roll back successful
+rows. Scans remain attached; voice-only records intentionally have no image and submitted
+audio is never stored.
 
 - **Domain language:** Gujarati (with English sub-labels throughout the UI).
 - **Scale target:** small — under ~500 records per school to start; hundreds of rows,
@@ -61,7 +64,7 @@ The PRD and the shipped code differ on extraction and entry paths. **Trust the c
 | OCR provider | Google Cloud Vision (`DOCUMENT_TEXT_DETECTION`) | **Sarvam Document AI** (Vision 1.5, Indic-specialised) is the raw-text anchor, with **OCR.space** as fallback; then a chain of **AI vision/LLM providers** structures the row |
 | Field mapping | "best-effort" regex/heuristic parsing, treated as nice-to-have | A multi-provider **AI extraction chain** is primary; the heuristic parser is only a client-side fallback |
 | "AI" in system | None beyond cloud OCR (per the older audit) | Multiple LLM/VLM providers are first-class in the server pipeline |
-| Voice entry | Not specified | **English (`en-IN`) dictation** supports the unchanged four-group single-student flow plus one-recording multi-student segmentation, editable batch review, and explicit sequential saves through Gemini audio |
+| Voice entry | Not specified | **English (`en-IN`) dictation** supports four-group single-student and one-recording multi-student extraction. One Gemini response carries the transcript plus English/ગુજરાતી field values; review has script toggles, provenance markers, Gujarati-name gating, and explicit sequential saves |
 
 `AUDIT_REPORT.md` predates both the shared provider chain and grouped voice entry. Since
 that audit, `lib/ocr-pipeline.ts`, the OCR routes/adapters, `lib/voice-pipeline.ts`,
@@ -152,7 +155,7 @@ digital-gr/
 │  ├─ ocr.ts                     # Sarvam raw anchor, OCR.space fallback, page split
 │  ├─ sarvam-doc-ai.ts           # Sarvam digitise + schema extract
 │  ├─ image-prep.ts              # Shared mobile-photo preprocessing
-│  ├─ extract-shared.ts          # Shared 19-field contract, mapper, retry, sanitizer
+│  ├─ extract-shared.ts          # Shared 21-field contract, mapper, retry, sanitizer
 │  ├─ gemini-extract.ts          # Gemini vision/text extraction
 │  ├─ openai-extract.ts          # OpenAI vision extraction
 │  ├─ mistral-extract.ts         # Mistral vision extraction
@@ -162,7 +165,10 @@ digital-gr/
 │  ├─ voice-fields.ts            # Four groups + spoken English normalization
 │  ├─ gemini-audio.ts            # Server-only Gemini audio/schema adapter
 │  ├─ voice-pipeline.ts          # Server-only production/compare/health orchestration
-│  ├─ voice-merge.ts             # Client-safe deterministic single-group merge/audit builder
+│  ├─ voice-merge.ts             # Client-safe deterministic bilingual group merge/audit builder
+│  ├─ voice-bilingual.ts         # Dual-script conversion, LGD canonicalization, provenance, hydration
+│  ├─ voice-persistence.ts       # Gujarati-column + fields_en single/batch payload builders
+│  ├─ gujarat-locations.ts       # Generated 2026-05-31 LGD district/sub-district catalog
 │  ├─ gr-record-batch.ts         # Provider-neutral validation/preflight/sequential row saves
 │  ├─ *.test.ts                  # Co-located Vitest unit tests for voice/data helpers
 │  ├─ gujarati.ts                # Gujarati numeral/date/standard formatting
@@ -170,6 +176,7 @@ digital-gr/
 │
 ├─ test/server-only.ts           # Empty Vitest shim for Next's server-only marker
 ├─ scripts/                      # Migration/provisioning/tenancy/platform checks
+│  └─ generate-gujarat-locations.mjs # Refreshes the pinned LGD location module
 ├─ supabase/migrations/          # Ordered schema and RLS migrations
 ├─ assests/                      # (sic) PRD + brochure/ledger PDFs
 ├─ Sample-img/                   # Real Gujarati register scans used for manual testing
@@ -200,8 +207,10 @@ All variables are documented in [`.env.local.example`](.env.local.example). Copy
 **OCR tuning (optional):** `OCR_PREPROCESS`, `OCR_EXTRACTOR_ORDER`,
 `OCR_DEBUG_COMPARE`, `OCR_COMPARE_GEMINI_MODELS`, and `OCR_COMPARE_OPENAI_MODELS`.
 
-**English voice entry (single and multi):** no new credential is required; the server
-reuses `GEMINI_API_KEY` and never sends it to the client.
+**English voice input with dual-script output (single and multi):** no new credential is
+required; the server reuses `GEMINI_API_KEY` and never sends it to the client. Both scripts
+are returned by the configured audio model in one response; toggling scripts makes no
+provider request.
 - `GEMINI_AUDIO_MODEL` — production audio model, default `gemini-3.7-flash`.
 - `VOICE_EXTRACTOR_ORDER` — production order, default and only registered v1 key:
   `gemini-audio`.
@@ -249,7 +258,7 @@ Three core tables plus a private Storage bucket. Defined across
 | `is_active` | boolean | added by `setup-phase9.ts` (default true); deactivation logs the user out |
 | `created_at` | timestamptz | |
 
-### `gr_records` — the digitized register rows (~26 columns)
+### `gr_records` — the digitized register rows (~29 columns)
 Unique constraint: **`(school_id, gr_number)`**. Indexes on `school_id`,
 `(school_id, student_name)`, `(school_id, surname)`. An `updated_at` trigger keeps the
 timestamp fresh.
@@ -257,7 +266,8 @@ timestamp fresh.
 Left-page / main detail fields (migration 001 + 004):
 `gr_number`*, `student_name`*, `fathers_name`*, `mothers_name`, `surname`*,
 `religion`, `caste_category`, `date_of_birth`* (date), `dob_in_words`, `birth_place`,
-`address`, `previous_school`.
+`address`, `previous_school`, nullable canonical `previous_school_district`, and nullable
+canonical `previous_school_subdistrict`.
 
 Right-page / academic fields (migration 004):
 `admission_date`* (date), `admission_standard`, `progress_and_conduct`,
@@ -267,11 +277,29 @@ System fields:
 `id` (uuid PK), `school_id`* (FK → schools, cascade), nullable `image_url` (Storage path;
 `NULL` for voice-only records), nullable `ocr_raw_text` (scan transcription, grouped
 `===== SPOKEN (…) =====` audit, or the same global
-`===== SPOKEN (Multiple entries) =====` transcript on every row in a voice batch),
-`created_by` (FK → profiles), `created_at`, `updated_at`.
+`===== SPOKEN (Multiple entries) =====` transcript on every row in a voice batch), nullable
+`fields_en` JSONB (English voice values keyed by GR field, each carrying `value`, `source`,
+and `confidence`; absent on OCR/manual rows), `created_by` (FK → profiles), `created_at`,
+`updated_at`.
 
 (* = required at the form/DB level. Form-required set:
 `gr_number, student_name, fathers_name, surname, date_of_birth, admission_date`.)
+
+### Canonical previous-school locations
+`previous_school_district` and `previous_school_subdistrict` store closed-list keys, never
+free text: `district:<LGD code>` and `subdistrict:<LGD code>`. The generated
+`lib/gujarat-locations.ts` snapshot is pinned to **2026-05-31** and contains **34 Gujarat
+districts** and **306 LGD sub-districts**, including district `789` Vav-Tharad. Sub-district
+identity always uses LGD land-region codes; development-block codes are not substitutes.
+The form filters talukas by district and clears an incompatible taluka when district changes.
+
+Identity, hierarchy, and English labels come from the Government of India
+[Local Government Directory resource](https://www.data.gov.in/resource/local-government-directory-lgd-sub-districts).
+Gujarati labels prefer code-linked LGD local-name exports from the documented
+[LGD archive mirror](https://ramseraph.github.io/opendata/lgd/); entries without a published
+local label carry explicit `deterministic-transliteration` provenance. Refresh with
+`node scripts/generate-gujarat-locations.mjs`, then run `lib/gujarat-locations.test.ts`.
+Content was rephrased for compliance with licensing restrictions.
 
 ### Storage bucket `gr-images`
 - **Private**, 10 MB file-size limit, MIME allow-list: JPEG, PNG, WebP, TIFF, PDF.
@@ -354,7 +382,7 @@ These are used inside policies so a policy check can't be spoofed by the client.
 
 ## 9. ★ Core entry pipelines: scan or voice → verify → save
 
-The create form has three capture modes that converge on the same 19-field review form:
+The create form has three capture modes that converge on the same 21-field review form:
 
 ```
 Single photo:
@@ -369,36 +397,42 @@ Both scan paths → lib/ocr-pipeline.ts → raw text + structured records
 Voice entry (English `en-IN`):
 VoiceEntryRecorder mode shell
   ├─ Single entry → GroupedVoiceEntryRecorder → four independent requests
-  │    → { mode: 'single', transcript, fields } → deterministic group merge
+  │    → { mode: 'single', transcript, fields: { en, gu, sources } }
+  │    → deterministic bilingual group merge
   └─ Multiple entries → MultiVoiceEntryRecorder → one free-form request
-       → { mode: 'multi', transcript, students[] } → VoiceBatchReview
-       → one collision preflight + explicit sequential inserts
+       → { mode: 'multi', transcript, students: [{ en, gu, sources }] }
+       → VoiceBatchReview → one collision preflight + explicit sequential inserts
 
 Every path → human confidence review/manual correction
+  → voice-only: Gujarati main columns + English/source `fields_en` JSONB
   → only an explicit user action inserts/updates `gr_records` (RLS-enforced)
 ```
 
 ### English voice entry: single and multiple (`en-IN`)
 
-The **Single entry** sub-mode preserves the original four schemas covering the canonical
-19 fields exactly once:
+The **Single entry** sub-mode uses four schemas covering the canonical 21 fields exactly
+once:
 
 1. **Identity (5):** `gr_number`, `student_name`, `fathers_name`, `mothers_name`, `surname`.
 2. **Birth & community (6):** `date_of_birth`, `dob_in_words`, `birth_place`, `religion`, `caste_category`, `address`.
-3. **Admission (3):** `admission_date`, `admission_standard`, `previous_school`.
+3. **Admission (5):** `admission_date`, `admission_standard`, `previous_school`, `previous_school_district`, `previous_school_subdistrict`.
 4. **Leaving & notes (5, skippable):** `leaving_date`, `leaving_standard`, `leaving_reason`, `progress_and_conduct`, `remarks`.
 
 Each completed group sends one authenticated multipart request. Gemini returns a faithful
-`transcript` and only that group's `fields` in the same response; `voice-merge.ts` merges
-completed groups in register order without changing the existing single-record behavior.
+Latin-script `transcript` and only that group's fields in the same response, with every
+field shaped as `{ en, gu }`. `voice-merge.ts` merges and sanitizes both scripts in register
+order; `voice-bilingual.ts` then resolves spoken district/taluka names to local LGD keys.
+There is no second translation request.
 
 The **Multiple entries** sub-mode records one continuous, explicitly separated dictation
 (e.g. “Entry one … Entry two …”). Gemini returns one transcript and an ordered
-`students[]` collection using all 19 canonical fields. `expectedCount` is optional and
-advisory: a mismatch produces the exact review warning but never rejects, reorders, pads,
-splits, merges, or truncates returned students. The UI warns that segmentation accuracy
-can drop past about 6 entries and again after a recording exceeds 2 minutes. Returned
-names remain Latin and every populated name is pinned to medium confidence.
+`students[]` collection using all 21 canonical fields in both scripts. `expectedCount` is
+optional and advisory: a mismatch produces the exact review warning but never rejects,
+reorders, pads, splits, merges, or truncates returned students. The UI warns that
+segmentation accuracy can drop past about 6 entries and again after a recording exceeds 2
+minutes. Names in `en` remain Latin; names in `gu` are phonetic renderings of the heard
+pronunciation, never semantic translations. An uncertain Gujarati proper noun stays empty
+for clerk correction, and every populated name is pinned to medium confidence.
 
 **Endpoint controls:** `POST /api/voice-entry` authorizes active `staff` and
 `school_admin` and applies its process-local 12/user/60-second paid-request limiter before
@@ -415,19 +449,37 @@ function-duration allowance in deployment settings before production. A lower pl
 can terminate a request that succeeds locally.
 
 **Sanitation, review, and persistence:** spoken English numbers, day-first dates, and
-standards 1–12 are normalized through the existing mapper. Single groups are merged once;
-multi students are normalized independently and preserved in provider order. Nothing
-auto-saves. `VoiceBatchReview` exposes every row/field for editing or discard, validates the
-six required fields, and identifies every occurrence of an in-batch duplicate GR number.
-On explicit save, `GRRecordForm` performs one tenant-scoped existing-GR lookup, then awaits
-eligible inserts sequentially. One failed row does not roll back successful rows, and a
+standards 1–12 are normalized through the existing mapper. Both scripts are sanitized
+independently, students remain in provider order, and locations resolve locally. The
+conversion hard-exclusion list is enforced in code: `gr_number`, `date_of_birth`,
+`admission_date`, `leaving_date`, `image_url`, and `ocr_raw_text` are never transliterated.
+Canonical location keys are also identical on both script sides and labels are localized
+from the generated module.
+
+Nothing auto-saves. Single and batch review expose real `role="group"` English/ગુજરાતી
+buttons with `aria-pressed`, keyboard-native buttons, and `aria-live` announcements. Every
+field shows provenance (`AI`, `LGD`, `Shared`, `Edited`, or `Single script`). Any AI-sourced
+value in required `student_name`, `fathers_name`, or `surname` blocks save until that value
+has actually been displayed in Gujarati; the UI explains the block inline rather than
+silently disabling save. Missing required Gujarati values remain normal validation errors.
+
+On explicit voice save, reviewed Gujarati values populate normal `gr_records` columns;
+English values, confidence, and per-field source markers populate nullable `fields_en`.
+OCR/manual payloads still use `buildGRRecordPayload` and omit `fields_en`, so existing OCR
+records and OCR multi-record behavior remain valid. `VoiceBatchReview` also identifies
+every occurrence of an in-batch duplicate GR number. `GRRecordForm` performs one
+tenant-scoped existing-GR lookup, then awaits eligible inserts sequentially. One failed row
+does not roll back successful rows, a mixed dual/single-script batch is supported, and a
 race-time PostgreSQL `23505` becomes an already-existing/skipped outcome. The UI reports
 per-row states and summaries such as `3 saved, 1 skipped: GR 42 already exists.`
 
 Single transcripts remain under group headers such as `===== SPOKEN (Identity) =====`.
 Every saved row from one multi recording receives the same unsegmented audit text under
 `===== SPOKEN (Multiple entries) =====`; the system never invents transcript segments.
-Audio is never persisted and voice-only rows use `image_url = NULL`.
+Audio is never persisted and voice-only rows use `image_url = NULL`. Records with
+`fields_en` expose the same local English/ગુજરાતી toggle on detail and edit; edit hydration
+preserves both scripts and regenerates `fields_en` on update. Legacy/OCR rows without
+metadata stay single-script and show no misleading toggle.
 
 Request generations, current-mode refs, abort controllers, mounted-state guards,
 media-track/timer/object-URL cleanup, and post-save locks prevent stale responses, leaked
@@ -591,20 +643,25 @@ This parser is intentionally lower-accuracy than the AI chain — it exists so t
 never left with nothing to auto-fill from.
 
 ### Step 5 — Verify & save (`components/GRRecordForm.tsx`)
-- Imports canonical 19-field order/labels/required metadata and the pure payload mapper from
-  `lib/gr-record-data.ts`.
-- Single photo, guided scan, and single voice continue through the ordinary one-record
-  bilingual form, confidence dots, validation, and explicit submit.
-- Multiple voice uses separate `ParsedGRFields[]` state and `VoiceBatchReview`; it never
+- Imports canonical 21-field order/labels/required metadata and the pure OCR/manual payload
+  mapper from `lib/gr-record-data.ts`.
+- Single photo and guided scan remain on ordinary single-script `ParsedGRFields` review.
+  Voice state is separate `{ en, gu, sources }`; changing the review script updates only
+  local state and never calls a provider.
+- Single voice uses the ordinary one-record layout with confidence/source markers,
+  dependent LGD selects, required Gujarati-name review, validation, and explicit submit.
+- Multiple voice uses separate `VoiceReviewFields[]` state and `VoiceBatchReview`; it never
   enters OCR's select-one path and hides the normal one-record fields/actions while active.
-- Batch edits invalidate stale preview outcomes. Explicit save calls `saveGRRecordBatch`
-  with one school-scoped preflight and injected one-row inserts; the pure module awaits
-  inserts sequentially and continues after row-local failures.
-- Voice batch payloads set `image_url = NULL` and share the exact global multi transcript
-  in `ocr_raw_text`. No audio object is stored. Completed outcomes lock editing/capture
-  until the operator returns to records, preventing accidental duplicate saves.
-- Ordinary `handleSubmit` still maps optional blanks to `NULL`, then inserts with the
-  profile's `school_id`/`created_by` or updates by `id`; RLS enforces tenancy.
+- Batch edits invalidate stale preview outcomes. Explicit save calls
+  `saveVoiceGRRecordBatch` with one school-scoped preflight and injected one-row inserts;
+  the pure module awaits inserts sequentially and continues after row-local failures.
+- Voice payloads write reviewed Gujarati columns plus English/source `fields_en`, set
+  `image_url = NULL`, and share the exact global multi transcript in `ocr_raw_text`. No
+  audio object is stored. Completed outcomes lock editing/capture until the operator
+  returns to records, preventing accidental duplicate saves.
+- OCR/manual `handleSubmit` still maps optional blanks to `NULL` without `fields_en`, then
+  inserts with the profile's `school_id`/`created_by` or updates by `id`; RLS enforces
+  tenancy.
 
 ### `components/ImageUploader.tsx`
 Uploads the selected file directly to Storage at `{schoolId}/{uuid}.{ext}` (`upsert:
@@ -628,9 +685,10 @@ round trip.
 group, playback/re-record, transcript/field preview, and cleanup guards.
 `MultiVoiceEntryRecorder.tsx` owns one continuous recording, Auto/± count hint, explicit
 boundary example, long-batch warnings, discriminated request/response validation, and
-actual transcript/student count preview. `VoiceBatchReview.tsx` is provider-neutral: it
-accepts `ParsedGRFields[]`, edits all 19 shared fields, shows required/confidence and
-ready/invalid/saved/skipped/failed states, and supports row/batch discard before save.
+actual transcript/student count preview. `VoiceBatchReview.tsx` accepts dual- or legacy
+single-script rows, edits all 21 shared fields, renders dependent LGD selects, exposes
+English/ગુજરાતી toggles plus source markers, enforces required Gujarati-name viewing, and
+shows ready/invalid/saved/skipped/failed states with row/batch discard before save.
 All streams, timers, abort controllers, request generations, and object URLs are cleaned up
 on replace/reset/unmount.
 
@@ -645,11 +703,11 @@ on replace/reset/unmount.
 | Image upload & storage | `components/ImageUploader.tsx` | per-school path in private `gr-images` |
 | Guided tiled scanner | `GuidedRegisterScanner`, `/api/ocr-scan`, `reconstruct-register` | authenticated seven-shot reconstruction and quality metadata |
 | OCR + AI extraction | `lib/ocr-pipeline.ts`, OCR routes, provider adapters | production first-wins and gated compare pipeline (§9) |
-| Voice entry | `VoiceEntryRecorder`, grouped/multi recorders, `VoiceBatchReview`, `/api/voice-entry`, audio pipeline | unchanged four-group single flow plus one-recording ordered multi extraction, explicit sequential batch save, no audio storage (§9) |
+| Voice entry | `VoiceEntryRecorder`, grouped/multi recorders, `VoiceBatchReview`, `/api/voice-entry`, audio/bilingual/persistence modules | one-response English/ગુજરાતી extraction, Gujarati review gate, ordered multi extraction, explicit sequential save, no audio storage (§9) |
 | Voice comparison | `/dashboard/records/voice-compare`, `/api/voice-entry?debug=all` | gated parallel Gemini comparison for grouped fields or per-model ordered students/count warnings |
-| GR record form/data | `GRRecordForm.tsx`, `gr-record-data.ts`, `gr-record-batch.ts` | shared single review plus provider-neutral validation, duplicate preflight, row outcomes, and sequential batch persistence |
+| GR record form/data | `GRRecordForm.tsx`, `gr-record-data.ts`, `gr-record-batch.ts`, `voice-persistence.ts` | 21-field single review, closed LGD locations, voice metadata, duplicate preflight, row outcomes, and sequential persistence |
 | Records browse/search | `/dashboard/records` | substring search, filters, sort, print, shortcuts |
-| Record detail | `/dashboard/records/[id]` | optional signed scan, OCR/spoken audit, delete for school_admin |
+| Record detail | `/dashboard/records/[id]` | optional signed scan, OCR/spoken audit, local English/ગુજરાતી voice toggle/source markers, delete for school_admin |
 | Dashboard/home | `/dashboard` | aggregate counts and recent entries |
 | School management | `/dashboard/schools`, `/api/admin/schools` | super_admin provisioning |
 | Staff management | `/dashboard/staff`, `/api/admin/users` | school_admin provisioning and activation |
@@ -696,15 +754,19 @@ Record routes: `/dashboard/records`, `/dashboard/records/new`,
    leaving_standard, remarks). All nullable.
 5. **005 schools rls** — enables RLS on `schools` (fixes the cross-tenant school listing
    leak).
+6. **006 previous-school location + English metadata** — adds nullable
+   `previous_school_district`, `previous_school_subdistrict`, and `fields_en`; existing
+   OCR/manual rows remain valid without any of them.
 
 > `profiles.is_active` is **not** in a migration — it is added by `lib/setup-phase9.ts`.
 > If you rebuild the DB from migrations alone, add this column too.
 
 ### One-time setup scripts (`lib/setup-*.ts`, run with `npx tsx`)
-- **`setup-phase2.ts`** — idempotent full bootstrap: creates tables/enum/indexes/trigger,
-  2 test schools (UUIDs `a0000…0001` / `b0000…0002`), **7 test auth users** (shared
-  password `TestPass123!`) + profiles, 2 sample GR records, and all 10 RLS policies +
-  helpers. Connects to Postgres directly using `SUPABASE_DB_PASSWORD`.
+- **`setup-phase2.ts`** — idempotent full bootstrap: creates the current tables (including
+  the 006 nullable columns), enum, indexes, trigger, 2 test schools (UUIDs
+  `a0000…0001` / `b0000…0002`), **7 test auth users** (shared password `TestPass123!`) +
+  profiles, 2 sample GR records, and all 10 RLS policies + helpers. Connects to Postgres
+  directly using `SUPABASE_DB_PASSWORD`.
 - **`setup-storage.ts`** — creates the private `gr-images` bucket (10 MB, MIME allow-list)
   and the 5 storage RLS policies keyed on the `{school_id}/` path prefix.
 - **`setup-phase9.ts`** — `ALTER TABLE profiles ADD COLUMN is_active`.
@@ -715,6 +777,9 @@ Test accounts (from `setup-phase2.ts`): `super@test.com`, `admin-a@test.com`,
 ### Ops scripts (`scripts/*.mjs`, run with `node`)
 - **`apply-migration.mjs <path.sql>`** — runs a migration file inside one transaction
   (rolls back on error); tries the direct DB host, then pooler hosts.
+- **`verify-previous-school-location.mjs`** — checks migration 006 column types/nullability,
+  loads a pre-existing record, round-trips a synthetic location/metadata insert, and proves
+  the verification transaction left no row behind.
 - **`provision-school.mjs --school "<name>" --admin <email>`** — creates/finds a school and
   attaches an existing login to it as `school_admin` (or `--role`); supports
   `--move-records` and `--dry-run`. Uses the service role (bypasses RLS) to fix the
@@ -749,7 +814,11 @@ imports `AGENTS.md` (`@AGENTS.md`).
 - **Adding a GR field** touches many places: DB migration → `STRING_FIELDS` and
   `FIELD_DESCRIPTIONS` in `extract-shared.ts` → `ParsedGRFields` → `GRRecordData`/payload
   → form labels/detail/edit. For voice support it must also appear exactly once in
-  `VOICE_FIELD_GROUPS`; tests assert complete 19-field coverage today.
+  `VOICE_FIELD_GROUPS`; tests assert complete 21-field coverage today. Canonical location
+  fields additionally require an LGD migration, generator refresh, dependent selects, and
+  resolver coverage. A voice-convertible field must participate in `{ en, gu, sources }`
+  conversion and `fields_en`; never remove anything from the documented hard-exclusion
+  list without a data-migration/audit decision.
 
 ### Known issues / findings (see `AUDIT_REPORT.md` for older audit history)
 - **Secrets:** real service/provider credentials had previously been present on disk;
@@ -765,10 +834,10 @@ imports `AGENTS.md` (`@AGENTS.md`).
   likely production failure for long recordings.
 - **Multi segmentation:** expected count is only a warning/check. Never pad or truncate to
   match it; prefer batches of 6 or fewer and require human review of every boundary.
-- **Latin-name search tradeoff:** voice stores names in Latin script as spoken. The records
-  page uses ordinary substring matching, so a Latin voice name does not match an existing
-  Gujarati-script spelling of the same person. This is accepted for v1; no silent
-  transliteration is attempted.
+- **Dual-script search scope:** voice main columns are reviewed Gujarati, so ordinary record
+  search matches Gujarati spellings. Preserved English values live in `fields_en`; the
+  records list does not currently query JSONB, so English-only searches do not match those
+  metadata values.
 - **Browser capture:** microphone and live guided camera access require HTTPS or localhost.
   Device permissions and hardware still need a real browser/session smoke test.
 - **Naming:** the production single-scan endpoint is still `/api/ocr-test`; the assets

@@ -13,7 +13,6 @@ import type {
 } from '@/lib/ocr-types'
 import {
   formatGRRecordBatchSummary,
-  saveGRRecordBatch,
   type GRRecordBatchResult,
 } from '@/lib/gr-record-batch'
 import {
@@ -26,17 +25,37 @@ import {
   type GRRecordData,
   type GRRecordField,
 } from '@/lib/gr-record-data'
+import {
+  formatGujaratLocationLabel,
+  getGujaratSubdistrict,
+  getGujaratSubdistricts,
+  GUJARAT_DISTRICTS,
+} from '@/lib/gujarat-locations'
 import { VOICE_FIELD_GROUPS } from '@/lib/voice-fields'
+import {
+  hydrateVoiceBilingualFields,
+  requiredAiGujaratiNameFields,
+  updateVoiceField,
+  voiceFieldsForScript,
+} from '@/lib/voice-bilingual'
+import {
+  buildVoiceGRRecordPayload,
+  saveVoiceGRRecordBatch,
+} from '@/lib/voice-persistence'
 import {
   buildSpokenAuditText,
   mergeVoiceGroups,
   voiceResultsInGroupOrder,
 } from '@/lib/voice-merge'
 import type {
+  VoiceBilingualFields,
   VoiceEntryMode,
   VoiceEntryResponse,
+  VoiceFieldSource,
   VoiceGroupId,
   VoiceMultiEntryResponse,
+  VoiceReviewFields,
+  VoiceScript,
 } from '@/lib/voice-types'
 import GuidedRegisterScanner from '@/components/GuidedRegisterScanner'
 import ImageUploader from '@/components/ImageUploader'
@@ -53,6 +72,13 @@ interface GRRecordFormProps {
 
 const EMPTY_FORM = EMPTY_GR_RECORD
 const REQUIRED_FIELD_SET = new Set<GRRecordField>(GR_RECORD_REQUIRED_FIELDS)
+const VOICE_SOURCE_LABELS: Record<VoiceFieldSource, string> = {
+  ai: 'AI',
+  'canonical-lgd': 'LGD',
+  shared: 'Shared',
+  clerk: 'Edited',
+  'single-script': 'Single script',
+}
 
 // Dot colour by extraction confidence
 function confidenceClass(confidence?: ParsedField['confidence']) {
@@ -73,7 +99,12 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   const voiceResultsRef = useRef<Partial<Record<VoiceGroupId, VoiceEntryResponse>>>({})
   const autoFilledFieldsRef = useRef<Set<keyof ParsedGRFields>>(new Set())
 
-  const [form, setForm] = useState<GRRecordData>({ ...EMPTY_FORM, ...initialData })
+  const [form, setForm] = useState<GRRecordData>(() => ({ ...EMPTY_FORM, ...initialData }))
+  const [voiceFields, setVoiceFields] = useState<VoiceBilingualFields | null>(() => (
+    hydrateVoiceBilingualFields({ ...EMPTY_FORM, ...initialData })
+  ))
+  const [voiceScript, setVoiceScript] = useState<VoiceScript>(initialData?.fields_en ? 'gu' : 'en')
+  const [viewedGujaratiFields, setViewedGujaratiFields] = useState<Set<GRRecordField>>(new Set())
   const [errors, setErrors] = useState<Partial<Record<keyof GRRecordData, string>>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -95,7 +126,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   // Multi-entry voice stays separate from OCR selection and the single-record form.
   const [voiceEntryMode, setVoiceEntryMode] = useState<VoiceEntryMode>('single')
   const [voiceRecorderKey, setVoiceRecorderKey] = useState(0)
-  const [multiRecords, setMultiRecords] = useState<ParsedGRFields[]>([])
+  const [multiRecords, setMultiRecords] = useState<VoiceReviewFields[]>([])
   const [multiAuditText, setMultiAuditText] = useState('')
   const [multiWarning, setMultiWarning] = useState<string | null>(null)
   const [multiStudentCount, setMultiStudentCount] = useState<number | null>(null)
@@ -159,8 +190,44 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     }
   }, [])
 
+  function formForVoiceScript(
+    previous: GRRecordData,
+    fields: VoiceBilingualFields,
+    script: VoiceScript
+  ): GRRecordData {
+    const visible = voiceFieldsForScript(fields, script)
+    const next = { ...previous }
+    for (const field of GR_RECORD_FIELD_ORDER) {
+      next[field] = visible[field]?.value ?? ''
+    }
+    return next
+  }
+
+  function markRequiredGujaratiNamesViewed(fields: VoiceBilingualFields) {
+    const required = requiredAiGujaratiNameFields(fields)
+    if (required.length === 0) return
+    setViewedGujaratiFields((previous) => {
+      const next = new Set(previous)
+      required.forEach((field) => next.add(field))
+      return next
+    })
+  }
+
+  function selectVoiceScript(script: VoiceScript) {
+    if (!voiceFields || script === voiceScript) return
+    setVoiceScript(script)
+    setForm((previous) => formForVoiceScript(previous, voiceFields, script))
+    if (script === 'gu') markRequiredGujaratiNamesViewed(voiceFields)
+    setSaveError(null)
+  }
+
   function updateField(field: keyof GRRecordData, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
+    if (GR_RECORD_FIELD_ORDER.includes(field as GRRecordField)) {
+      setVoiceFields((previous) => previous
+        ? updateVoiceField(previous, voiceScript, field as GRRecordField, value)
+        : previous)
+    }
     if (errors[field]) {
       setErrors((prev) => { const next = { ...prev }; delete next[field]; return next })
     }
@@ -174,10 +241,10 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     }
   }
 
-  function validate(): boolean {
+  function validate(record: GRRecordData = form): boolean {
     const newErrors: Partial<Record<keyof GRRecordData, string>> = {}
     for (const field of GR_RECORD_REQUIRED_FIELDS) {
-      if (!form[field]?.trim()) {
+      if (!record[field]?.trim()) {
         newErrors[field] = `${GR_RECORD_FIELD_LABELS[field].split(' /')[0]} is required`
       }
     }
@@ -189,6 +256,9 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     const requestId = ++ocrRequestIdRef.current
     voiceResultsRef.current = {}
     setForm({ ...EMPTY_FORM, image_url: storagePath })
+    setVoiceFields(null)
+    setVoiceScript('en')
+    setViewedGujaratiFields(new Set())
     setErrors({})
     setSaveError(null)
     setOcrText('')
@@ -362,15 +432,43 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     const merged = mergeVoiceGroups(ordered)
     const auditText = buildSpokenAuditText(nextResults)
     const warnings = ordered.flatMap((result) => result.warning ? [result.warning] : [])
-    const hasFields = Object.keys(merged.fields).length > 0
+    const hasFields = Object.keys(merged.fields.en).length > 0 || Object.keys(merged.fields.gu).length > 0
+    const visible = merged.fields[voiceScript]
 
-    setForm((previous) => ({ ...previous, image_url: '', ocr_raw_text: auditText }))
+    setVoiceFields(hasFields ? merged.fields : null)
+    setForm((previous) => hasFields
+      ? {
+          ...formForVoiceScript(previous, merged.fields, voiceScript),
+          image_url: '',
+          ocr_raw_text: auditText,
+        }
+      : { ...previous, image_url: '', ocr_raw_text: auditText })
+    if (hasFields) {
+      const changedRequiredNames = requiredAiGujaratiNameFields(merged.fields).filter((field) => (
+        voiceFields?.gu[field]?.value !== merged.fields.gu[field]?.value
+      ))
+      if (voiceScript === 'gu') {
+        markRequiredGujaratiNamesViewed(merged.fields)
+      } else if (changedRequiredNames.length > 0) {
+        setViewedGujaratiFields((previous) => {
+          const next = new Set(previous)
+          changedRequiredNames.forEach((field) => next.delete(field))
+          return next
+        })
+      }
+    }
     setOcrText(auditText)
     setOcrMode(ordered.length > 0 ? 'gemini' : null)
     setOcrError(null)
     setExtractionWarnings(warnings)
-    setParsedRecords(hasFields ? [merged.fields] : [])
+    setParsedRecords(hasFields ? [visible] : [])
     setSelectedRecordIndex(hasFields ? 0 : null)
+    const filledKeys = new Set<keyof ParsedGRFields>()
+    for (const field of GR_RECORD_FIELD_ORDER) {
+      if (visible[field]?.value) filledKeys.add(field)
+    }
+    autoFilledFieldsRef.current = filledKeys
+    setAutoFilledFields(filledKeys)
     return { auditText, merged: merged.fields }
   }
 
@@ -382,12 +480,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
     const nextResults = { ...voiceResultsRef.current, [result.group]: result }
     voiceResultsRef.current = nextResults
-    const { auditText } = syncVoiceAggregate(nextResults)
-    applyParsedRecord(
-      result.fields,
-      { image_url: '', ocr_raw_text: auditText },
-      { merge: true }
-    )
+    syncVoiceAggregate(nextResults)
   }
 
   function handleVoiceGroupClear(group: VoiceGroupId) {
@@ -454,7 +547,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     voiceSessionRequestIdRef.current = beginOcrSource()
   }
 
-  function handleVoiceBatchChange(records: ParsedGRFields[]) {
+  function handleVoiceBatchChange(records: VoiceReviewFields[]) {
     if (batchResultRef.current) return
     setBatchResult(null)
     setBatchSummary(null)
@@ -508,7 +601,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     const schoolId = profile.school_id
     setBatchSaving(true)
     try {
-      const result = await saveGRRecordBatch(multiRecords, {
+      const result = await saveVoiceGRRecordBatch(multiRecords, {
         schoolId,
         createdBy: profile.id,
         imageUrl: null,
@@ -557,7 +650,28 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
-    if (!validate()) {
+    if (voiceFields) {
+      const unviewed = requiredAiGujaratiNameFields(voiceFields).filter(
+        (field) => !viewedGujaratiFields.has(field)
+      )
+      if (unviewed.length > 0) {
+        setSaveError(
+          `Gujarati review required: switch to ગુજરાતી and review ${unviewed.map((field) => GR_RECORD_FIELD_LABELS[field].split(' /')[1]).join(', ')} before saving.`
+        )
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+
+      const gujaratiForm = formForVoiceScript(form, voiceFields, 'gu')
+      if (!validate(gujaratiForm)) {
+        setVoiceScript('gu')
+        setForm(gujaratiForm)
+        markRequiredGujaratiNamesViewed(voiceFields)
+        setSaveError('Complete every required Gujarati value before saving the voice record.')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        return
+      }
+    } else if (!validate()) {
       // Scroll to top to see errors easily
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
@@ -566,7 +680,12 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
     setSaving(true)
     try {
-      const payload = buildGRRecordPayload(form)
+      const payload = voiceFields
+        ? buildVoiceGRRecordPayload(voiceFields, {
+            imageUrl: form.image_url,
+            ocrRawText: form.ocr_raw_text,
+          })
+        : buildGRRecordPayload(form)
 
       if (mode === 'create') {
         const { error } = await supabase.from('gr_records').insert({
@@ -589,7 +708,13 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
   }
 
   // ── Render helpers ──────────────────────────────────────
-  const selectedParsedFields = selectedRecordIndex !== null ? parsedRecords[selectedRecordIndex] : null
+  const selectedParsedFields = voiceFields
+    ? voiceFields[voiceScript]
+    : selectedRecordIndex !== null ? parsedRecords[selectedRecordIndex] : null
+  const requiredAiGujaratiFields = voiceFields ? requiredAiGujaratiNameFields(voiceFields) : []
+  const unviewedRequiredGujaratiFields = requiredAiGujaratiFields.filter(
+    (field) => !viewedGujaratiFields.has(field)
+  )
   const parsedCount = selectedParsedFields ? countParsedFields(selectedParsedFields) : { total: 0 }
   const scanBusy = ocrLoading || captureBusy
   const isVoiceMultiMode = mode === 'create' && captureMode === 'voice' && voiceEntryMode === 'multi'
@@ -606,6 +731,7 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
     const hasError = !!errors[field]
     const isAutoFilled = autoFilledFields.has(field)
     const parsed = selectedParsedFields ? selectedParsedFields[field] : null
+    const voiceSource = voiceFields?.sources[field]?.[voiceScript]
 
     // Labels are stored as "ગુજરાતી / English" — split so Gujarati leads, the way
     // the caption is printed on the page, with English as the quiet sub-caption.
@@ -617,6 +743,12 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
 
     // GR numbers and dates are ledger figures — set them in tabular mono.
     const monoField = field === 'gr_number' || type === 'date'
+    const locationOptions = field === 'previous_school_district'
+      ? GUJARAT_DISTRICTS
+      : field === 'previous_school_subdistrict'
+        ? getGujaratSubdistricts(form.previous_school_district)
+        : null
+    const locationDisabled = field === 'previous_school_subdistrict' && locationOptions?.length === 0
 
     return (
       <div>
@@ -630,10 +762,50 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
                 title={`${captureMode === 'voice' ? 'Filled from voice' : 'Read from the scan'} — ${parsed.confidence} confidence`}
               />
             )}
+            {voiceSource && (
+              <span
+                className="neu-badge bg-surface-2 text-ink-soft text-[9px] px-1.5 py-0.5"
+                title={`Value source: ${VOICE_SOURCE_LABELS[voiceSource]}`}
+              >
+                {VOICE_SOURCE_LABELS[voiceSource]}
+              </span>
+            )}
           </span>
           <span className="label-en">{enLabel}</span>
         </label>
-        {type === 'textarea' ? (
+        {locationOptions ? (
+          <select
+            id={`field-${field}`}
+            value={form[field]}
+            disabled={locationDisabled}
+            onChange={(event) => {
+              const value = event.target.value
+              if (field === 'previous_school_district') {
+                const currentSubdistrict = getGujaratSubdistrict(form.previous_school_subdistrict)
+                updateField(field, value)
+                if (currentSubdistrict?.districtKey !== value) {
+                  updateField('previous_school_subdistrict', '')
+                }
+              } else {
+                updateField(field, value)
+              }
+            }}
+            className={`neu-input font-gujarati ${hasError ? 'neu-input-error' : ''} ${isAutoFilled ? 'border-accent/60' : ''}`}
+          >
+            <option value="">
+              {field === 'previous_school_district'
+                ? 'જિલ્લો પસંદ કરો / Select district'
+                : locationDisabled
+                  ? 'પહેલા જિલ્લો પસંદ કરો / Select district first'
+                  : 'તાલુકો પસંદ કરો / Select taluka'}
+            </option>
+            {locationOptions.map((location) => (
+              <option key={location.key} value={location.key}>
+                {formatGujaratLocationLabel(location.key, voiceFields ? voiceScript : 'both')}
+              </option>
+            ))}
+          </select>
+        ) : type === 'textarea' ? (
           <textarea
             id={`field-${field}`}
             value={form[field]}
@@ -1018,6 +1190,45 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
         </header>
 
         <div className="p-5 sm:p-6 space-y-5">
+        {voiceFields && (
+          <div className="rounded-xl border border-line-strong bg-surface-2 px-4 py-3 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-ink">Review script</p>
+                <p className="text-[11px] text-ink-soft mt-0.5">Both scripts stay in this record while you review and edit.</p>
+              </div>
+              <div className="inline-grid grid-cols-2 gap-1 self-start" role="group" aria-label="Record review script">
+                <button
+                  type="button"
+                  onClick={() => selectVoiceScript('en')}
+                  aria-pressed={voiceScript === 'en'}
+                  className={`neu-btn px-3 py-2 text-xs ${voiceScript === 'en' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+                >
+                  English
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectVoiceScript('gu')}
+                  aria-pressed={voiceScript === 'gu'}
+                  className={`neu-btn px-3 py-2 text-xs ${voiceScript === 'gu' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+                >
+                  ગુજરાતી
+                </button>
+              </div>
+            </div>
+            <p className="sr-only" aria-live="polite" aria-atomic="true">
+              {voiceScript === 'gu' ? 'Showing Gujarati values for record review.' : 'Showing English values for record review.'}
+            </p>
+            {unviewedRequiredGujaratiFields.length > 0 && (
+              <div className="rounded-lg border border-warning/35 bg-warning/[0.08] px-3 py-2" role="note">
+                <p className="text-xs font-semibold text-warning">Gujarati name review required before save</p>
+                <p className="text-[11px] text-warning/80 mt-1">
+                  Switch to ગુજરાતી to review {unviewedRequiredGujaratiFields.length} AI-sourced required name {unviewedRequiredGujaratiFields.length === 1 ? 'value' : 'values'}. The save button remains available so any issue is explained inline.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         {saveError && (
           <div className="neu-card-flat p-4" style={{ borderColor: '#a8322b' }}>
             <p className="text-sm font-semibold text-error">Couldn&apos;t save this entry</p>
@@ -1041,6 +1252,8 @@ export default function GRRecordForm({ mode, initialData }: GRRecordFormProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
           {renderInput('address', 'textarea', { placeholder: 'ગામ / વતન / રહેઠાણ', rows: 2 })}
           {renderInput('previous_school', 'text', { placeholder: 'છેલ્લી શાળાનું નામ (optional)' })}
+          {renderInput('previous_school_district')}
+          {renderInput('previous_school_subdistrict')}
         </div>
         </div>
       </div>

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import {
-  prepareGRRecordBatch,
   type GRRecordBatchRow,
   type GRRecordBatchRowStatus,
 } from '@/lib/gr-record-batch'
@@ -12,14 +11,30 @@ import {
   GR_RECORD_REQUIRED_FIELDS,
   type GRRecordField,
 } from '@/lib/gr-record-data'
-import type { ParsedField, ParsedGRFields } from '@/lib/ocr-parser'
+import {
+  formatGujaratLocationLabel,
+  getGujaratSubdistricts,
+  GUJARAT_DISTRICTS,
+} from '@/lib/gujarat-locations'
+import type { ParsedField } from '@/lib/ocr-parser'
+import {
+  coerceVoiceBilingualFields,
+  requiredAiGujaratiNameFields,
+  updateVoiceField,
+} from '@/lib/voice-bilingual'
+import { prepareVoiceGRRecordBatch } from '@/lib/voice-persistence'
+import type {
+  VoiceFieldSource,
+  VoiceReviewFields,
+  VoiceScript,
+} from '@/lib/voice-types'
 
 interface VoiceBatchReviewProps {
-  records: readonly ParsedGRFields[]
+  records: readonly VoiceReviewFields[]
   outcomes?: readonly GRRecordBatchRow[]
   disabled?: boolean
   saving?: boolean
-  onChange: (records: ParsedGRFields[]) => void
+  onChange: (records: VoiceReviewFields[]) => void
   onSave?: () => void
   onDiscardAll?: () => void
 }
@@ -53,6 +68,14 @@ const STATUS_LABELS: Record<GRRecordBatchRowStatus, string> = {
   failed: 'Save failed',
 }
 
+const SOURCE_LABELS: Record<VoiceFieldSource, string> = {
+  ai: 'AI',
+  'canonical-lgd': 'LGD',
+  shared: 'Shared',
+  clerk: 'Edited',
+  'single-script': 'Single script',
+}
+
 function confidenceClass(confidence?: ParsedField['confidence']): string {
   if (confidence === 'high') return 'bg-success'
   if (confidence === 'medium') return 'bg-warning'
@@ -80,6 +103,10 @@ function statusIcon(status: GRRecordBatchRowStatus) {
   return <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
 }
 
+function reviewKey(index: number, field: GRRecordField): string {
+  return `${index}:${field}`
+}
+
 export default function VoiceBatchReview({
   records,
   outcomes,
@@ -90,7 +117,14 @@ export default function VoiceBatchReview({
   onDiscardAll,
 }: VoiceBatchReviewProps) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set([0]))
-  const preparedRows = useMemo(() => prepareGRRecordBatch(records), [records])
+  const [script, setScript] = useState<VoiceScript>('en')
+  const [viewedGujaratiFields, setViewedGujaratiFields] = useState<Set<string>>(new Set())
+  const [reviewAttempted, setReviewAttempted] = useState(false)
+  const dualRecords = useMemo(
+    () => records.map((record) => coerceVoiceBilingualFields(record)),
+    [records]
+  )
+  const preparedRows = useMemo(() => prepareVoiceGRRecordBatch(records), [records])
   const outcomeByIndex = useMemo(
     () => new Map((outcomes ?? []).map((row) => [row.index, row])),
     [outcomes]
@@ -98,35 +132,59 @@ export default function VoiceBatchReview({
   const displayRows = preparedRows.map((row) => outcomeByIndex.get(row.index) ?? row)
   const readyCount = displayRows.filter((row) => row.status === 'ready').length
   const terminalCount = preparedRows.filter((row) => outcomeByIndex.has(row.index)).length
+  const requiredAiFields = dualRecords.flatMap((record, index) => (
+    requiredAiGujaratiNameFields(record).map((field) => ({ index, field }))
+  ))
+  const unviewedAiFields = requiredAiFields.filter(
+    ({ index, field }) => !viewedGujaratiFields.has(reviewKey(index, field))
+  )
+  const reviewBlocked = unviewedAiFields.length > 0
+
+  function markRowsViewed(indices: Iterable<number>) {
+    setViewedGujaratiFields((previous) => {
+      const next = new Set(previous)
+      for (const index of indices) {
+        const record = dualRecords[index]
+        if (!record) continue
+        for (const field of requiredAiGujaratiNameFields(record)) {
+          next.add(reviewKey(index, field))
+        }
+      }
+      return next
+    })
+  }
+
+  function selectScript(nextScript: VoiceScript) {
+    if (nextScript === 'gu') markRowsViewed(expandedRows)
+    setScript(nextScript)
+    setReviewAttempted(false)
+  }
 
   function toggleRow(index: number) {
+    const opening = !expandedRows.has(index)
     setExpandedRows((previous) => {
       const next = new Set(previous)
       if (next.has(index)) next.delete(index)
       else next.add(index)
       return next
     })
+    if (opening && script === 'gu') markRowsViewed([index])
   }
 
   function updateField(index: number, field: GRRecordField, value: string) {
-    const nextRecords = records.map((record, recordIndex) => {
-      if (recordIndex !== index) return record
-      const next = { ...record }
-      if (!value) {
-        delete next[field]
-      } else {
-        next[field] = {
-          value,
-          confidence: record[field]?.confidence ?? 'medium',
-        }
-      }
-      return next
-    })
+    const nextRecords = records.map((record, recordIndex) => (
+      recordIndex === index
+        ? updateVoiceField(coerceVoiceBilingualFields(record), script, field, value)
+        : record
+    ))
+    setReviewAttempted(false)
     onChange(nextRecords)
   }
 
   function discardRow(index: number) {
     onChange(records.filter((_, recordIndex) => recordIndex !== index))
+    setViewedGujaratiFields(new Set())
+    setReviewAttempted(false)
     setExpandedRows((previous) => {
       const next = new Set<number>()
       for (const openIndex of previous) {
@@ -136,6 +194,14 @@ export default function VoiceBatchReview({
       if (next.size === 0 && records.length > 1) next.add(0)
       return next
     })
+  }
+
+  function requestSave() {
+    if (reviewBlocked) {
+      setReviewAttempted(true)
+      return
+    }
+    onSave?.()
   }
 
   if (records.length === 0) {
@@ -167,6 +233,27 @@ export default function VoiceBatchReview({
             {records.length} row{records.length === 1 ? '' : 's'}
           </span>
         </div>
+        <div className="mt-3 inline-grid grid-cols-2 gap-1" role="group" aria-label="Batch review script">
+          <button
+            type="button"
+            onClick={() => selectScript('en')}
+            aria-pressed={script === 'en'}
+            className={`neu-btn px-3 py-2 text-xs ${script === 'en' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+          >
+            English
+          </button>
+          <button
+            type="button"
+            onClick={() => selectScript('gu')}
+            aria-pressed={script === 'gu'}
+            className={`neu-btn px-3 py-2 text-xs ${script === 'gu' ? 'neu-btn-primary' : 'neu-btn-ghost'}`}
+          >
+            ગુજરાતી
+          </button>
+        </div>
+        <p className="sr-only" aria-live="polite" aria-atomic="true">
+          {script === 'gu' ? 'Showing Gujarati values for batch review.' : 'Showing English values for batch review.'}
+        </p>
         <p className="sr-only" aria-live="polite" aria-atomic="true">
           {terminalCount > 0
             ? `${terminalCount} of ${records.length} rows have save outcomes.`
@@ -175,8 +262,9 @@ export default function VoiceBatchReview({
       </header>
 
       <div className="divide-y divide-line">
-        {records.map((record, index) => {
+        {dualRecords.map((record, index) => {
           const row = displayRows[index]
+          const visible = record[script]
           const expanded = expandedRows.has(index)
           const panelId = `batch-row-${index}-fields`
           const titleId = `batch-row-${index}-title`
@@ -194,8 +282,8 @@ export default function VoiceBatchReview({
                   className="min-w-0 flex-1 text-left"
                 >
                   <span className="flex flex-wrap items-center gap-2">
-                    <span id={titleId} className="font-semibold text-sm text-ink">
-                      {record.student_name?.value.trim() || `Student row ${index + 1}`}
+                    <span id={titleId} className={`font-semibold text-sm text-ink ${script === 'gu' ? 'font-gujarati' : ''}`}>
+                      {visible.student_name?.value.trim() || `Student row ${index + 1}`}
                     </span>
                     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[row.status]}`}>
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden="true">
@@ -205,8 +293,8 @@ export default function VoiceBatchReview({
                     </span>
                   </span>
                   <span className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
-                    <span>GR <span className="text-mono font-medium text-ink">{record.gr_number?.value || '—'}</span></span>
-                    <span>DOB <span className="text-mono font-medium text-ink">{record.date_of_birth?.value || '—'}</span></span>
+                    <span>GR <span className="text-mono font-medium text-ink">{visible.gr_number?.value || '—'}</span></span>
+                    <span>DOB <span className="text-mono font-medium text-ink">{visible.date_of_birth?.value || '—'}</span></span>
                     <span>{expanded ? 'Hide fields' : 'Edit fields'}</span>
                   </span>
                   {row.message && (
@@ -220,7 +308,7 @@ export default function VoiceBatchReview({
                   type="button"
                   onClick={() => discardRow(index)}
                   disabled={rowDisabled}
-                  aria-label={`Discard ${record.student_name?.value.trim() || `student row ${index + 1}`}`}
+                  aria-label={`Discard ${visible.student_name?.value.trim() || `student row ${index + 1}`}`}
                   className="neu-btn neu-btn-ghost px-3 py-2 text-xs shrink-0"
                 >
                   Discard
@@ -231,18 +319,25 @@ export default function VoiceBatchReview({
                 <div id={panelId} className="px-4 sm:px-5 pb-5" aria-label={`Fields for student row ${index + 1}`}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 border-t border-line pt-4">
                     {GR_RECORD_FIELD_ORDER.map((field) => {
-                      const parsed = record[field]
+                      const parsed = visible[field]
+                      const source = record.sources[field]?.[script]
                       const [gujaratiLabel, englishLabel] = splitLabel(field)
                       const required = REQUIRED_FIELDS.has(field)
                       const hasError = row.missingFields.some((missingField) => missingField === field)
                       const inputId = `batch-${index}-${field}`
                       const errorId = `${inputId}-error`
-                      const sharedClass = `neu-input ${field === 'gr_number' || DATE_FIELDS.has(field) ? 'neu-input-mono' : 'font-gujarati'} ${hasError ? 'neu-input-error' : ''}`
+                      const sharedClass = `neu-input ${field === 'gr_number' || DATE_FIELDS.has(field) ? 'neu-input-mono' : script === 'gu' ? 'font-gujarati' : ''} ${hasError ? 'neu-input-error' : ''}`
+                      const locationOptions = field === 'previous_school_district'
+                        ? GUJARAT_DISTRICTS
+                        : field === 'previous_school_subdistrict'
+                          ? getGujaratSubdistricts(visible.previous_school_district?.value)
+                          : null
+                      const locationDisabled = field === 'previous_school_subdistrict' && locationOptions?.length === 0
 
                       return (
                         <div key={field} className={TEXTAREA_FIELDS.has(field) ? 'sm:col-span-2' : ''}>
                           <label htmlFor={inputId} className="block mb-1.5">
-                            <span className="flex items-center gap-1.5">
+                            <span className="flex flex-wrap items-center gap-1.5">
                               <span className="label-gu">{gujaratiLabel}</span>
                               {required && <span className="text-error text-sm leading-none" aria-hidden="true">*</span>}
                               {parsed && (
@@ -252,12 +347,38 @@ export default function VoiceBatchReview({
                                   aria-hidden="true"
                                 />
                               )}
+                              {source && (
+                                <span className="neu-badge bg-surface-2 text-ink-soft text-[9px] px-1.5 py-0.5" title={`Value source: ${SOURCE_LABELS[source]}`}>
+                                  {SOURCE_LABELS[source]}
+                                </span>
+                              )}
                               {required && <span className="sr-only">required</span>}
                               {parsed && <span className="sr-only">{parsed.confidence} extraction confidence</span>}
                             </span>
                             <span className="label-en">{englishLabel}</span>
                           </label>
-                          {TEXTAREA_FIELDS.has(field) ? (
+                          {locationOptions ? (
+                            <select
+                              id={inputId}
+                              value={parsed?.value ?? ''}
+                              onChange={(event) => updateField(index, field, event.target.value)}
+                              disabled={rowDisabled || locationDisabled}
+                              aria-invalid={hasError || undefined}
+                              aria-describedby={hasError ? errorId : undefined}
+                              className={sharedClass}
+                            >
+                              <option value="">
+                                {field === 'previous_school_district'
+                                  ? 'Select district'
+                                  : locationDisabled ? 'Select district first' : 'Select taluka'}
+                              </option>
+                              {locationOptions.map((location) => (
+                                <option key={location.key} value={location.key}>
+                                  {formatGujaratLocationLabel(location.key, script)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : TEXTAREA_FIELDS.has(field) ? (
                             <textarea
                               id={inputId}
                               value={parsed?.value ?? ''}
@@ -282,7 +403,7 @@ export default function VoiceBatchReview({
                           )}
                           {hasError && (
                             <p id={errorId} className="text-xs text-error font-medium mt-1.5">
-                              {englishLabel || gujaratiLabel} is required.
+                              {englishLabel || gujaratiLabel} is required in the Gujarati record.
                             </p>
                           )}
                         </div>
@@ -296,7 +417,18 @@ export default function VoiceBatchReview({
         })}
       </div>
 
-      <footer className="p-4 sm:px-5 border-t border-line-strong bg-surface-2">
+      <footer className="p-4 sm:px-5 border-t border-line-strong bg-surface-2 space-y-3">
+        {reviewBlocked && (
+          <div
+            className="rounded-xl border border-warning/35 bg-warning/[0.08] px-4 py-3"
+            role={reviewAttempted ? 'alert' : 'note'}
+          >
+            <p className="text-xs font-semibold text-warning">Gujarati name review required</p>
+            <p className="text-[11px] text-warning/80 mt-1">
+              Switch to ગુજરાતી and expand each affected row before saving. {unviewedAiFields.length} AI-sourced required name {unviewedAiFields.length === 1 ? 'value remains' : 'values remain'} to review.
+            </p>
+          </div>
+        )}
         <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
           {onDiscardAll ? (
             <button
@@ -311,7 +443,7 @@ export default function VoiceBatchReview({
           {onSave && (
             <button
               type="button"
-              onClick={onSave}
+              onClick={requestSave}
               disabled={disabled || saving || readyCount === 0}
               className="neu-btn neu-btn-primary"
             >

@@ -1,4 +1,4 @@
-import type { ParsedGRFields } from './ocr-parser'
+import type { ParsedField, ParsedGRFields } from './ocr-parser'
 
 export const VOICE_GROUP_IDS = [
   'identity',
@@ -14,6 +14,37 @@ export const VOICE_EXPECTED_COUNT_MAX = 10
 export type VoiceGroupId = (typeof VOICE_GROUP_IDS)[number]
 export type VoiceEntryMode = (typeof VOICE_ENTRY_MODES)[number]
 export type VoiceLanguage = 'en-IN'
+export type VoiceScript = 'en' | 'gu'
+export type VoiceFieldSource =
+  | 'ai'
+  | 'canonical-lgd'
+  | 'shared'
+  | 'clerk'
+  | 'single-script'
+
+export interface VoiceFieldSources {
+  en?: VoiceFieldSource
+  gu?: VoiceFieldSource
+}
+
+/** Voice-only dual-script shape. OCR deliberately remains ParsedGRFields. */
+export interface VoiceBilingualFields {
+  en: ParsedGRFields
+  gu: ParsedGRFields
+  sources: Partial<Record<keyof ParsedGRFields, VoiceFieldSources>>
+}
+
+export type VoiceReviewFields = VoiceBilingualFields | ParsedGRFields
+
+export interface VoiceEnglishFieldMetadata {
+  value: string
+  source: VoiceFieldSource
+  confidence: ParsedField['confidence']
+}
+
+export type VoiceEnglishMetadata = Partial<
+  Record<keyof ParsedGRFields, VoiceEnglishFieldMetadata>
+>
 
 export interface VoiceGroupDefinition {
   id: VoiceGroupId
@@ -38,7 +69,7 @@ interface VoiceProductionBase {
 export interface VoiceSingleEntryResponse extends VoiceProductionBase {
   mode: 'single'
   group: VoiceGroupId
-  fields: ParsedGRFields
+  fields: VoiceBilingualFields
 }
 
 /** Backward-compatible name used by the existing four-group single-entry flow. */
@@ -48,7 +79,7 @@ export type VoiceEntryResponse = VoiceSingleEntryResponse
 export interface VoiceMultiEntryResponse extends VoiceProductionBase {
   mode: 'multi'
   expectedCount: number | null
-  students: ParsedGRFields[]
+  students: VoiceBilingualFields[]
 }
 
 export type VoiceProductionResponse = VoiceSingleEntryResponse | VoiceMultiEntryResponse
@@ -58,7 +89,7 @@ export interface VoiceSingleCompareResult {
   source: string
   model: string
   transcript: string
-  fields: ParsedGRFields
+  fields: VoiceBilingualFields
   warning: string | null
   ms: number
   error: string | null
@@ -69,7 +100,7 @@ export interface VoiceMultiCompareResult {
   source: string
   model: string
   transcript: string
-  students: ParsedGRFields[]
+  students: VoiceBilingualFields[]
   warning: string | null
   ms: number
   error: string | null

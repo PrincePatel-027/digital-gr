@@ -11,7 +11,7 @@ function result(
     group,
     language: 'en-IN',
     transcript,
-    fields: {},
+    fields: { en: {}, gu: {}, sources: {} },
     source: 'gemini-audio',
     model: 'gemini-test',
     warning: null,

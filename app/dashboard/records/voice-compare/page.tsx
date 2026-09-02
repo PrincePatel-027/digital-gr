@@ -524,13 +524,18 @@ export default function VoiceComparePage() {
                     <tr key={field}>
                       <td className="text-xs text-ink-soft whitespace-nowrap">{VOICE_FIELD_LABELS[field]}</td>
                       {singleResults.map((result) => {
-                        const value = result.fields[field]
+                        const english = result.fields.en[field]
+                        const gujarati = result.fields.gu[field]
+                        const value = gujarati ?? english
                         return (
                           <td key={result.model} className="align-top">
                             {value ? (
                               <span className="inline-flex items-start gap-1.5">
                                 <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${confidenceClass(value.confidence)}`} aria-hidden="true" />
-                                <span className="text-sm text-ink">{value.value}</span>
+                                <span className="text-sm text-ink">
+                                  <span className="block font-gujarati">{gujarati?.value || '—'}</span>
+                                  <span className="block text-xs text-ink-soft">{english?.value || '—'}</span>
+                                </span>
                                 <span className="sr-only">{value.confidence} confidence</span>
                               </span>
                             ) : <span className="text-ink-faint">—</span>}
@@ -562,10 +567,11 @@ export default function VoiceComparePage() {
                         <header className="px-4 py-3 bg-surface-2 border-b border-line">
                           <p className="text-xs font-semibold text-accent text-mono">Student {studentIndex + 1}</p>
                           <p className="text-sm font-semibold text-ink mt-0.5">
-                            {student.student_name?.value || '(Unknown name)'}
+                            <span className="font-gujarati">{student.gu.student_name?.value || '—'}</span>
+                            <span className="text-ink-soft"> / {student.en.student_name?.value || '(Unknown name)'}</span>
                           </p>
                           <p className="text-xs text-ink-soft mt-0.5">
-                            GR <span className="text-mono">{student.gr_number?.value || '—'}</span>
+                            GR <span className="text-mono">{student.en.gr_number?.value || '—'}</span>
                           </p>
                         </header>
                         <div className="overflow-x-auto">
@@ -578,7 +584,9 @@ export default function VoiceComparePage() {
                             </thead>
                             <tbody>
                               {GR_RECORD_FIELD_ORDER.map((field) => {
-                                const value = student[field]
+                                const english = student.en[field]
+                                const gujarati = student.gu[field]
+                                const value = gujarati ?? english
                                 return (
                                   <tr key={field}>
                                     <td className="text-xs text-ink-soft whitespace-nowrap">{GR_RECORD_FIELD_LABELS[field]}</td>
@@ -586,7 +594,10 @@ export default function VoiceComparePage() {
                                       {value ? (
                                         <span className="inline-flex items-start gap-1.5">
                                           <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${confidenceClass(value.confidence)}`} aria-hidden="true" />
-                                          <span className="text-sm text-ink">{value.value}</span>
+                                          <span className="text-sm text-ink">
+                                            <span className="block font-gujarati">{gujarati?.value || '—'}</span>
+                                            <span className="block text-xs text-ink-soft">{english?.value || '—'}</span>
+                                          </span>
                                           <span className="sr-only">{value.confidence} confidence</span>
                                         </span>
                                       ) : <span className="text-ink-faint">—</span>}

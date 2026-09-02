@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { toParsedRecord } from './extract-shared'
+import type { ParsedGRFields } from './ocr-parser'
+import { createVoiceBilingualFields } from './voice-bilingual'
 import {
   mergeVoiceGroups,
   reconcileCount,
@@ -11,6 +13,10 @@ import {
 } from './voice-pipeline'
 
 const audio = Buffer.from('audio')
+const emptyDual = () => ({ en: {}, gu: {}, sources: {} } as const)
+const dual = (en: ParsedGRFields, gu: ParsedGRFields = en) => (
+  createVoiceBilingualFields(en, gu)
+)
 
 afterEach(() => {
   delete process.env.VOICE_EXTRACTOR_ORDER
@@ -46,14 +52,14 @@ describe('partial voice mapping', () => {
 })
 
 describe('runVoicePipeline', () => {
-  it('uses first non-empty result, accumulates earlier warnings, and pins names medium', async () => {
+  it('uses first non-empty result, accumulates warnings, and pins names in both scripts', async () => {
     const runners: Record<string, VoiceRunner> = {
       empty: {
         available: true,
         run: async () => ({
           mode: 'single',
           transcript: '',
-          fields: {},
+          fields: emptyDual(),
           model: 'empty-model',
           error: 'provider unavailable',
         }),
@@ -63,10 +69,16 @@ describe('runVoicePipeline', () => {
         run: async () => ({
           mode: 'single',
           transcript: 'Student Jagdish Dixit.',
-          fields: {
-            student_name: { value: 'Jagdish', confidence: 'high' },
-            surname: { value: 'Dixit', confidence: 'high' },
-          },
+          fields: dual(
+            {
+              student_name: { value: 'Jagdish', confidence: 'high' },
+              surname: { value: 'Dixit', confidence: 'high' },
+            },
+            {
+              student_name: { value: 'જગદીશ', confidence: 'high' },
+              surname: { value: 'દીક્ષિત', confidence: 'high' },
+            }
+          ),
           model: 'working-model',
         }),
       },
@@ -79,8 +91,10 @@ describe('runVoicePipeline', () => {
 
     expect(result.mode).toBe('single')
     expect(result.source).toBe('success')
-    expect(result.fields.student_name?.confidence).toBe('medium')
-    expect(result.fields.surname?.confidence).toBe('medium')
+    expect(result.fields.en.student_name?.confidence).toBe('medium')
+    expect(result.fields.gu.student_name?.confidence).toBe('medium')
+    expect(result.fields.en.surname?.confidence).toBe('medium')
+    expect(result.fields.gu.surname?.confidence).toBe('medium')
     expect(result.warning).toBe(
       'missing: extractor is not registered | empty: provider unavailable'
     )
@@ -93,7 +107,7 @@ describe('runVoicePipeline', () => {
         run: async () => ({
           mode: 'single',
           transcript: '',
-          fields: {},
+          fields: emptyDual(),
           model: 'failed-model',
           error: 'quota exhausted',
         }),
@@ -111,7 +125,7 @@ describe('runVoicePipeline', () => {
 })
 
 describe('runMultiVoicePipeline', () => {
-  it('returns all actual students, pins names medium, and warns without coercing count', async () => {
+  it('returns all actual students, pins both scripts, and warns without coercing count', async () => {
     const runners: Record<string, MultiVoiceRunner> = {
       empty: {
         available: true,
@@ -129,18 +143,36 @@ describe('runMultiVoicePipeline', () => {
           mode: 'multi',
           transcript: 'Three complete student entries.',
           students: [
-            {
-              gr_number: { value: '42', confidence: 'high' },
-              student_name: { value: 'Jagdish', confidence: 'high' },
-            },
-            {
-              gr_number: { value: '43', confidence: 'high' },
-              student_name: { value: 'Mira', confidence: 'high' },
-            },
-            {
-              gr_number: { value: '44', confidence: 'high' },
-              student_name: { value: 'Jay', confidence: 'high' },
-            },
+            dual(
+              {
+                gr_number: { value: '42', confidence: 'high' },
+                student_name: { value: 'Jagdish', confidence: 'high' },
+              },
+              {
+                gr_number: { value: '42', confidence: 'high' },
+                student_name: { value: 'જગદીશ', confidence: 'high' },
+              }
+            ),
+            dual(
+              {
+                gr_number: { value: '43', confidence: 'high' },
+                student_name: { value: 'Mira', confidence: 'high' },
+              },
+              {
+                gr_number: { value: '43', confidence: 'high' },
+                student_name: { value: 'મીરા', confidence: 'high' },
+              }
+            ),
+            dual(
+              {
+                gr_number: { value: '44', confidence: 'high' },
+                student_name: { value: 'Jay', confidence: 'high' },
+              },
+              {
+                gr_number: { value: '44', confidence: 'high' },
+                student_name: { value: 'જય', confidence: 'high' },
+              }
+            ),
           ],
           model: 'working-model',
         }),
@@ -154,7 +186,10 @@ describe('runMultiVoicePipeline', () => {
 
     expect(result.mode).toBe('multi')
     expect(result.students).toHaveLength(3)
-    expect(result.students.every((record) => record.student_name?.confidence === 'medium')).toBe(true)
+    expect(result.students.every((record) => (
+      record.en.student_name?.confidence === 'medium' &&
+      record.gu.student_name?.confidence === 'medium'
+    ))).toBe(true)
     expect(result.warning).toBe(
       'empty: temporarily unavailable | You expected 4 entries, I found 3. Review before saving.'
     )
@@ -192,45 +227,52 @@ describe('runMultiVoicePipeline', () => {
 })
 
 describe('mergeVoiceGroups', () => {
-  it('uses the later value when a group is re-recorded and accumulates warnings', () => {
+  it('uses the later bilingual value when re-recorded and accumulates warnings', () => {
     const merged = mergeVoiceGroups([
       {
         group: 'identity',
-        fields: { student_name: { value: 'Old', confidence: 'high' } },
+        fields: dual(
+          { student_name: { value: 'Old', confidence: 'high' } },
+          { student_name: { value: 'જૂનું', confidence: 'high' } }
+        ),
         warning: 'first warning',
       },
       {
         group: 'identity',
-        fields: { student_name: { value: 'Jagdish', confidence: 'high' } },
+        fields: dual(
+          { student_name: { value: 'Jagdish', confidence: 'high' } },
+          { student_name: { value: 'જગદીશ', confidence: 'high' } }
+        ),
         warning: 'second warning',
       },
     ])
 
-    expect(merged.fields.student_name).toEqual({ value: 'Jagdish', confidence: 'medium' })
+    expect(merged.fields.en.student_name).toEqual({ value: 'Jagdish', confidence: 'medium' })
+    expect(merged.fields.gu.student_name).toEqual({ value: 'જગદીશ', confidence: 'medium' })
     expect(merged.warning).toBe('first warning | second warning')
   })
 
-  it('runs admission/leaving ambiguity sanitation once after all groups merge', () => {
+  it('runs admission/leaving sanitation once per script after all groups merge', () => {
     const merged = mergeVoiceGroups([
       {
         group: 'admission',
-        fields: {
+        fields: dual({
           admission_date: { value: '2024-06-06', confidence: 'high' },
           admission_standard: { value: '1', confidence: 'high' },
-        },
+        }),
       },
       {
         group: 'leaving-notes',
-        fields: {
+        fields: dual({
           leaving_date: { value: '2026-03-31', confidence: 'high' },
           leaving_standard: { value: '3', confidence: 'high' },
-        },
+        }),
       },
     ])
 
-    expect(merged.fields.admission_date?.confidence).toBe('high')
-    expect(merged.fields.leaving_date?.confidence).toBe('high')
-    expect(merged.fields.admission_standard?.confidence).toBe('high')
-    expect(merged.fields.leaving_standard?.confidence).toBe('high')
+    expect(merged.fields.en.admission_date?.confidence).toBe('high')
+    expect(merged.fields.gu.leaving_date?.confidence).toBe('high')
+    expect(merged.fields.en.admission_standard?.confidence).toBe('high')
+    expect(merged.fields.gu.leaving_standard?.confidence).toBe('high')
   })
 })

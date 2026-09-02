@@ -8,6 +8,7 @@ import {
   type GRRecordRequiredField,
 } from './gr-record-data'
 import type { ParsedGRFields } from './ocr-parser'
+import type { VoiceEnglishMetadata } from './voice-types'
 
 export type GRRecordBatchRowStatus =
   | 'ready'
@@ -29,7 +30,11 @@ export interface GRRecordBatchSource {
   ocrRawText?: string | null
 }
 
-export interface GRRecordInsertPayload extends GRRecordPayload {
+export interface GRRecordPayloadWithMetadata extends GRRecordPayload {
+  fields_en?: VoiceEnglishMetadata | null
+}
+
+export interface GRRecordInsertPayload extends GRRecordPayloadWithMetadata {
   school_id: string
   created_by: string
 }
@@ -37,7 +42,7 @@ export interface GRRecordInsertPayload extends GRRecordPayload {
 export interface GRRecordBatchRow {
   index: number
   grNumber: string
-  payload: GRRecordPayload
+  payload: GRRecordPayloadWithMetadata
   status: GRRecordBatchRowStatus
   reason: GRRecordBatchRowReason
   missingFields: GRRecordRequiredField[]
@@ -167,11 +172,11 @@ function resultFromRows(rows: GRRecordBatchRow[]): GRRecordBatchResult {
  * Performs one collision preflight, then awaits inserts one by one. An insert
  * failure belongs only to that row; later eligible rows still run.
  */
-export async function saveGRRecordBatch(
-  records: readonly ParsedGRFields[],
-  options: SaveGRRecordBatchOptions
+export async function savePreparedGRRecordBatch(
+  preparedRows: readonly GRRecordBatchRow[],
+  options: Pick<SaveGRRecordBatchOptions, 'schoolId' | 'createdBy' | 'findExisting' | 'insertOne'>
 ): Promise<GRRecordBatchResult> {
-  let rows = prepareGRRecordBatch(records, options)
+  let rows = [...preparedRows]
   const readyGRNumbers = rows
     .filter((row) => row.status === 'ready')
     .map((row) => row.grNumber)
@@ -248,6 +253,13 @@ export async function saveGRRecordBatch(
   }
 
   return resultFromRows(completedRows)
+}
+
+export async function saveGRRecordBatch(
+  records: readonly ParsedGRFields[],
+  options: SaveGRRecordBatchOptions
+): Promise<GRRecordBatchResult> {
+  return savePreparedGRRecordBatch(prepareGRRecordBatch(records, options), options)
 }
 
 export function formatGRRecordBatchSummary(result: GRRecordBatchResult): string {

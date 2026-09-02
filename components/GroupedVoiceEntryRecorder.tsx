@@ -530,7 +530,9 @@ export default function VoiceEntryRecorder({
                       <p className="text-xs font-semibold text-ink-soft mb-2">Extracted fields · review in the form</p>
                       <div className="space-y-1.5">
                         {currentDefinition.fields.map((field) => {
-                          const parsed = currentResult.fields[field]
+                          const english = currentResult.fields.en[field]
+                          const gujarati = currentResult.fields.gu[field]
+                          const parsed = gujarati ?? english
                           if (!parsed) return null
                           return (
                             <div key={field} className="flex items-start gap-2 text-xs">
@@ -539,7 +541,10 @@ export default function VoiceEntryRecorder({
                                 aria-hidden="true"
                               />
                               <span className="min-w-28 text-ink-faint font-medium">{VOICE_FIELD_LABELS[field]}</span>
-                              <span className="text-ink font-medium">{parsed.value}</span>
+                              <span className="text-ink font-medium">
+                                <span className="font-gujarati">{gujarati?.value || '—'}</span>
+                                <span className="text-ink-faint"> / {english?.value || '—'}</span>
+                              </span>
                               <span className="sr-only">{parsed.confidence} confidence</span>
                             </div>
                           )

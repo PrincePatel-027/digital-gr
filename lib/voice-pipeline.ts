@@ -8,12 +8,14 @@ import {
   type GeminiAudioResult,
   type GeminiMultiAudioResult,
 } from './gemini-audio'
+import { cloneVoiceBilingualFields } from './voice-bilingual'
 import type { ParsedGRFields } from './ocr-parser'
 export { mergeVoiceGroups } from './voice-merge'
 export type { MergedVoiceGroups, VoiceGroupMergeInput } from './voice-merge'
 import {
   VOICE_EXPECTED_COUNT_MAX,
   VOICE_EXPECTED_COUNT_MIN,
+  type VoiceBilingualFields,
   type VoiceCompareResponse,
   type VoiceEntryResponse,
   type VoiceGroupId,
@@ -123,14 +125,23 @@ export function reconcileCount(
   return `You expected ${expectedCount} ${expectedCount === 1 ? 'entry' : 'entries'}, I found ${actualCount}. Review before saving.`
 }
 
-function pinNameConfidence(fields: ParsedGRFields): ParsedGRFields {
-  const pinned: ParsedGRFields = { ...fields }
+function pinNameConfidence(fields: VoiceBilingualFields): VoiceBilingualFields {
+  const pinned = cloneVoiceBilingualFields(fields)
   for (const field of NAME_FIELDS) {
-    if (pinned[field]) {
-      pinned[field] = { value: pinned[field]!.value, confidence: 'medium' }
+    for (const script of ['en', 'gu'] as const) {
+      if (pinned[script][field]) {
+        pinned[script][field] = {
+          value: pinned[script][field]!.value,
+          confidence: 'medium',
+        }
+      }
     }
   }
   return pinned
+}
+
+function hasVoiceFields(fields: VoiceBilingualFields): boolean {
+  return Object.keys(fields.en).length > 0 || Object.keys(fields.gu).length > 0
 }
 
 function productionRunners(
@@ -208,7 +219,7 @@ export async function runVoicePipeline(
     }
 
     const fields = pinNameConfidence(result.fields)
-    if (result.transcript.trim() && Object.keys(fields).length > 0 && !result.error) {
+    if (result.transcript.trim() && hasVoiceFields(fields) && !result.error) {
       return {
         mode: 'single',
         group,
@@ -328,7 +339,7 @@ export async function runVoiceComparison(
           fields,
           warning: null,
           ms: Date.now() - startedAt,
-          error: result.error || (Object.keys(fields).length ? null : 'No fields extracted.'),
+          error: result.error || (hasVoiceFields(fields) ? null : 'No fields extracted.'),
         }
       }
 
@@ -357,7 +368,7 @@ export async function runVoiceComparison(
             source: 'gemini-audio',
             model,
             transcript: '',
-            fields: {},
+            fields: { en: {}, gu: {}, sources: {} },
             warning: null,
             ms: Date.now() - startedAt,
             error: error instanceof Error ? error.message : String(error),
